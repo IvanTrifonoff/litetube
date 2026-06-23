@@ -8,8 +8,8 @@
 #   VPS_SSH_KEY   — private SSH key for authentication
 #
 # Setup on VPS (one-time):
-#   git clone https://github.com/IvanTrifonoff/litetube /srv/litetube
-#   # The deploy job does: cd /srv/litetube && git pull && cd backend && ./setup.sh
+#   git clone https://github.com/IvanTrifonoff/litetube /srv/proxy-infra
+#   # The deploy job does: cd /srv/proxy-infra && git pull && cd backend && sudo ./setup.sh
 
 name: Litetube CI
 
@@ -77,7 +77,7 @@ jobs:
           key: ${{ secrets.VPS_SSH_KEY }}
           script: |
             set -e
-            cd /srv/litetube
+            cd /srv/proxy-infra
             git pull origin main
             cd backend
             sudo ./setup.sh
