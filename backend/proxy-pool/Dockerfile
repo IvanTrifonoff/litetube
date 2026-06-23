@@ -5,14 +5,22 @@
 # container regenerates 3proxy.cfg and SIGHUPs the parent process on user
 # signup/ban/revoke. No rebuild needed for routine operations.
 
+FROM alpine:3.19 AS builder
+
+RUN apk add --no-cache gcc musl-dev make linux-headers git
+RUN git clone --depth 1 https://github.com/3proxy/3proxy.git /src
+WORKDIR /src
+RUN make -f Makefile.Linux
+
 FROM alpine:3.19
 
 RUN apk add --no-cache \
-        3proxy \
         supervisor \
         curl \
         tini \
         bash
+
+COPY --from=builder /src/bin/3proxy /usr/bin/3proxy
 
 # Drop privileges by default. supervisord starts the 3proxy program as
 # 'nobody'. The bind shell is still root so it can read configuration.
