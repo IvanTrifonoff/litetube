@@ -37,6 +37,7 @@ mkdir -p /srv/proxy-infra/db \
          /srv/proxy-infra/3proxy-data \
          /srv/proxy-infra/3proxy-log \
          /srv/proxy-infra/logs \
+         /srv/litetube \
          /var/www/litetube-acme
 chown -R www-data:www-data /var/www/litetube-acme
 
@@ -74,6 +75,17 @@ ln -sf "$ROOT/nginx/admin.litetube.trfnv.ru.conf" /etc/nginx/sites-enabled/admin
 ln -sf "$ROOT/nginx/api.litetube.trfnv.ru.conf"   /etc/nginx/sites-enabled/api.litetube.trfnv.ru.conf
 ln -sf "$ROOT/nginx/conf.d/litetube-rate-limits.conf"    /etc/nginx/conf.d/litetube-rate-limits.conf
 ln -sf "$ROOT/nginx/conf.d/litetube-default-server.conf" /etc/nginx/conf.d/litetube-default-server.conf
+
+# APK hosting: nginx location /app/ serves from /srv/litetube/app.
+# Symlink the repo's static/app/ → /srv/litetube/app so both FastAPI's
+# /app listing page and nginx's direct file serving see the same files.
+ln -sfn "$ROOT/api/litetube/static/app" /srv/litetube/app
+# Ensure nginx can read the APK directory (docker/container setups may need www-data).
+if id www-data &>/dev/null; then
+    chown -R www-data:www-data "$ROOT/api/litetube/static/app"
+fi
+
+echo "[setup.sh] app directory symlinked: /srv/litetube/app -> $ROOT/api/litetube/static/app"
 
 # 5. drop Debian default Welcome-to-nginx -- we ship our own default_server catch-all.
 rm -f /etc/nginx/sites-enabled/default

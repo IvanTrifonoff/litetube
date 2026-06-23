@@ -220,7 +220,8 @@ async def init(path: str) -> None:
     """Run pending migrations synchronously (one writer at boot is fine), then open async conn."""
     global _conn
     import os
-    os.makedirs(os.path.dirname(path), exist_ok=True)
+    if path != ":memory:":
+        os.makedirs(os.path.dirname(path), exist_ok=True)
 
     sconn = _connect_sync(path)
     try:

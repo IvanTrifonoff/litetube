@@ -7,8 +7,11 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import random
 import sys
+import time
 from contextlib import asynccontextmanager
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from fastapi import Cookie, Depends, FastAPI, Form, HTTPException, Header, Request
@@ -360,8 +363,66 @@ async def health():
     return {"status": "ok", "service": "litetube-api"}
 
 
-# ----------------------------------------------------------------------
-# Device-activation flow (TV-client ↔ web pairing).
+@app.get("/activate", response_class=HTMLResponse)
+async def page_activate():
+    """Web activation page — phone pairs the TV code to the logged-in account."""
+    return (HERE / "static" / "activate.html").read_text(encoding="utf-8")
+
+
+@app.get("/app", response_class=HTMLResponse)
+async def page_app():
+    """APK download page — lists available APK builds."""
+    app_dir = HERE / "static" / "app"
+    apks = sorted(
+        [f.name for f in app_dir.glob("*.apk") if f.is_file()],
+        reverse=True
+    ) if app_dir.is_dir() else []
+    apk_rows = "\n".join(
+        f'<li><a href="/app/{name}">{name}</a></li>'
+        for name in apks
+    ) if apks else '<li>Сборка ещё не загружена — напишите в поддержку.</li>'
+    return f"""<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="color-scheme" content="dark">
+<title>Litetube — скачать APK</title>
+<style>
+  body{{background:#0a0a14;color:#e0e0f0;font-family:-apple-system,BlinkMacSystemFont,sans-serif;
+    min-height:100dvh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:16px;
+    background-image:radial-gradient(ellipse at 50% 0%,rgba(124,92,252,0.08) 0%,transparent 60%)}}
+  .card{{background:#13132a;border:1px solid #1e1e3a;border-radius:12px;padding:32px 24px;max-width:440px;width:100%}}
+  h1{{font-size:20px;text-align:center;margin-bottom:4px}}
+  .sub{{font-size:13px;color:#8888aa;text-align:center;margin-bottom:20px}}
+  ol{{font-size:14px;line-height:1.8;padding-left:20px;margin-bottom:20px;color:#c0c0e0}}
+  a.btn{{display:block;width:100%;padding:12px 20px;border:none;border-radius:8px;font-size:15px;font-weight:600;
+    cursor:pointer;text-align:center;background:#7c5cfc;color:#fff;text-decoration:none;
+    transition:background .15s}}
+  a.btn:hover{{background:#9b7fff}}
+  .links{{margin-top:12px;font-size:13px}}
+  .links a{{color:#7c5cfc;text-decoration:none}}
+  .links a:hover{{text-decoration:underline}}
+</style>
+</head>
+<body>
+<div class="card">
+<h1>Установите Litetube на ТВ</h1>
+<p class="sub">Android TV 5.0+ (API 21)</p>
+<ol>
+  <li>Скачайте APK-файл по ссылке ниже</li>
+  <li>Перенесите APK на телевизор (флешка, Send Files to TV, облако)</li>
+  <li>Откройте файл на ТВ → установите (разрешите неизвестные источники)</li>
+  <li>Запустите Litetube → на экране появится 6-значный код</li>
+  <li>Вернитесь на эту страницу на телефоне и введите код → <a href="/activate">страница активации</a></li>
+</ol>
+<ul style="list-style:none;padding:0;font-size:14px">{apk_rows}</ul>
+<div class="links center" style="margin-top:16px;text-align:center">
+  <a href="/">На главную</a> &middot; <a href="/activate">Активация</a>
+</div>
+</div>
+</body>
+</html>"""
 #
 #  POST /api/devices/start              — TV app: get a 6-digit code + QR url
 #  GET  /api/devices/poll?code=XXXXXX   — TV app: long-poll until claimed
@@ -372,8 +433,6 @@ async def health():
 # up to DEVICE_POLL_MAX_SEC and returns 'pending' (HTTP 202) on timeout, so
 # the TV client can reconnect without polluting logs.
 # ----------------------------------------------------------------------
-import random
-_DEVICE_QR_PATH = "/api/devices/qr"
 _DEVICE_POLL_MAX_SEC = float(os.environ.get("DEVICE_POLL_MAX_SEC", "30"))
 _DEVICE_POLL_TICK_MS = int(os.environ.get("DEVICE_POLL_TICK_MS", "400"))
 _DEVICE_START_PER_IP_PER_MIN = int(os.environ.get("DEVICE_START_PER_IP_PER_MIN", "12"))
@@ -400,7 +459,7 @@ async def api_devices_start(request: Request):
         return JSONResponse({"error": "rate_limited"}, status_code=429)
 
     now = await db.now()
-    expires = (datetime.utcnow() + timedelta(seconds=_DEVICE_CLAIM_TTL_SEC)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    expires = (datetime.now(timezone.utc) + timedelta(seconds=_DEVICE_CLAIM_TTL_SEC)).strftime("%Y-%m-%dT%H:%M:%SZ")
     code = await _make_unique_code()
     await db.conn().execute(
         "INSERT INTO device_claims(code, created_at, expires_at_iso) VALUES (?,?,?)",

@@ -1,0 +1,641 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="color-scheme" content="dark">
+<meta name="description" content="Litetube — YouTube без рекламы на Android TV с собственным прокси-сервером">
+<title>Litetube — YouTube для Android TV</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0a0a14;--card:#13132a;--card-border:#1e1e3a;
+  --text:#e0e0f0;--text-muted:#8888aa;--text-dim:#55557a;
+  --accent:#7c5cfc;--accent-hover:#9b7fff;
+  --success:#10b981;--success-bg:#0a2a1a;--success-border:#0f4a2a;
+  --warn:#f59e0b;--warn-bg:#2a1f0a;--warn-border:#4a3a0a;
+  --error:#ef4444;--error-bg:#2a0a0a;--error-border:#4a0a0a;
+  --input-bg:#1a1a2e;--input-border:#2a2a4a;
+  --radius:12px;--radius-sm:8px;
+}
+body{
+  font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+  background:var(--bg);color:var(--text);
+  min-height:100dvh;line-height:1.5;
+  background-image:radial-gradient(ellipse at 50% 0%,rgba(124,92,252,0.10) 0%,transparent 50%);
+}
+a{color:var(--accent);text-decoration:none}
+a:hover{text-decoration:underline}
+
+/* ---- layout ---- */
+.container{max-width:520px;margin:0 auto;padding:16px}
+.card{
+  background:var(--card);border:1px solid var(--card-border);
+  border-radius:var(--radius);padding:24px 20px;margin-bottom:16px;
+}
+
+.hidden{display:none!important}
+
+/* ---- hero ---- */
+.hero{padding:40px 16px 32px;text-align:center}
+.hero-logo svg{width:56px;height:56px;margin-bottom:16px}
+.hero h1{font-size:28px;font-weight:700;line-height:1.2;margin-bottom:8px;letter-spacing:-0.5px}
+.hero p{color:var(--text-muted);font-size:14px;max-width:360px;margin:0 auto 24px}
+.hero-btns{display:flex;gap:10px;justify-content:center;flex-wrap:wrap}
+
+/* ---- features ---- */
+.features{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:24px}
+.feature{
+  background:var(--card);border:1px solid var(--card-border);border-radius:var(--radius);
+  padding:20px 16px;text-align:center;
+}
+.feature-icon{font-size:28px;margin-bottom:8px}
+.feature h3{font-size:13px;font-weight:600;margin-bottom:4px}
+.feature p{font-size:11px;color:var(--text-muted);line-height:1.4}
+
+/* ---- buttons ---- */
+.btn{
+  display:inline-flex;align-items:center;justify-content:center;gap:6px;
+  padding:11px 20px;border:none;border-radius:var(--radius-sm);
+  font-size:14px;font-weight:600;cursor:pointer;text-align:center;
+  transition:background .15s,opacity .15s,transform .1s;
+  font-family:inherit;text-decoration:none;
+}
+.btn:active{transform:scale(0.98)}
+.btn:disabled{opacity:0.4;cursor:not-allowed;transform:none}
+.btn-primary{background:var(--accent);color:#fff}
+.btn-primary:hover:not(:disabled){background:var(--accent-hover)}
+.btn-success{background:var(--success);color:#fff}
+.btn-outline{background:transparent;color:var(--accent);border:1.5px solid var(--accent)}
+.btn-outline:hover:not(:disabled){background:rgba(124,92,252,0.08)}
+.btn-sm{padding:7px 14px;font-size:12px}
+.btn-lg{padding:14px 28px;font-size:16px}
+.btn-block{display:flex;width:100%}
+.btn-danger{background:var(--error);color:#fff}
+
+/* ---- forms ---- */
+.field{margin-bottom:14px}
+.field label{display:block;font-size:12px;color:var(--text-muted);margin-bottom:5px;font-weight:500}
+.field input{
+  width:100%;padding:11px 14px;font-size:14px;border:1.5px solid var(--input-border);
+  border-radius:var(--radius-sm);background:var(--input-bg);color:var(--text);
+  outline:none;font-family:inherit;transition:border-color .15s;
+}
+.field input:focus{border-color:var(--accent)}
+.field input::placeholder{color:var(--text-dim)}
+.form-check{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text-muted)}
+
+/* ---- tabs ---- */
+.tabs{display:flex;gap:0;margin-bottom:20px;border-bottom:1.5px solid var(--input-border)}
+.tab{
+  flex:1;text-align:center;padding:10px 0;font-size:13px;font-weight:500;
+  color:var(--text-muted);cursor:pointer;border-bottom:2px solid transparent;
+  transition:color .15s,border-color .15s;
+  background:none;border-top:none;border-left:none;border-right:none;font-family:inherit;
+}
+.tab.active{color:var(--accent);border-bottom-color:var(--accent)}
+
+/* ---- status badges ---- */
+.badge{
+  display:inline-flex;align-items:center;gap:5px;
+  font-size:11px;font-weight:600;padding:4px 10px;border-radius:20px;
+}
+.badge-success{background:var(--success-bg);color:var(--success);border:1px solid var(--success-border)}
+.badge-warn{background:var(--warn-bg);color:var(--warn);border:1px solid var(--warn-border)}
+.badge-error{background:var(--error-bg);color:var(--error);border:1px solid var(--error-border)}
+.badge-neutral{background:var(--input-bg);color:var(--text-muted);border:1px solid var(--input-border)}
+
+/* ---- messages ---- */
+.msg{font-size:13px;line-height:1.5;text-align:center;padding:12px 16px;border-radius:var(--radius-sm);margin-bottom:16px}
+.msg-success{background:var(--success-bg);color:var(--success);border:1px solid var(--success-border)}
+.msg-warn{background:var(--warn-bg);color:var(--warn);border:1px solid var(--warn-border)}
+.msg-error{background:var(--error-bg);color:var(--error);border:1px solid var(--error-border)}
+
+/* ---- dashboard ---- */
+.dash-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:20px}
+.dash-user{font-size:14px;color:var(--text)}
+.dash-email{font-size:12px;color:var(--text-muted)}
+.sub-card{padding:20px;border-radius:var(--radius-sm);margin-bottom:16px}
+.sub-trial{background:var(--input-bg);border:1px solid var(--input-border)}
+.sub-active{background:var(--success-bg);border:1px solid var(--success-border)}
+.sub-expired{background:var(--warn-bg);border:1px solid var(--warn-border)}
+.sub-title{font-size:12px;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px}
+.sub-days{font-size:32px;font-weight:700;line-height:1}
+.sub-detail{font-size:12px;color:var(--text-muted);margin-top:4px}
+.actions{display:flex;flex-direction:column;gap:8px}
+.actions .btn{justify-content:flex-start}
+
+
+/* ---- proxy info ---- */
+.proxy-info{font-size:13px;color:var(--text-muted);margin-top:12px;line-height:1.6}
+.proxy-info code{
+  background:var(--input-bg);padding:2px 6px;border-radius:4px;
+  font-family:'SF Mono',monospace;font-size:12px;color:var(--accent);
+}
+
+/* ---- helpers ---- */
+.spinner{
+  display:inline-block;width:20px;height:20px;border:2px solid var(--input-border);
+  border-top-color:var(--accent);border-radius:50%;animation:spin .6s linear infinite;
+}
+@keyframes spin{to{transform:rotate(360deg)}}
+.center{text-align:center}
+.mt8{margin-top:8px}.mt12{margin-top:12px}.mt16{margin-top:16px}.mt20{margin-top:20px}.mt24{margin-top:24px}
+.mb8{margin-bottom:8px}.mb16{margin-bottom:16px}
+.gap8{gap:8px}.gap12{gap:12px}
+.flex{display:flex}.flex-col{flex-direction:column}.items-center{align-items:center}
+.space-between{justify-content:space-between}
+
+/* ---- header nav ---- */
+.navbar{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:12px 16px;max-width:520px;margin:0 auto;
+}
+.navbar-brand{display:flex;align-items:center;gap:8px;font-weight:600;font-size:15px;color:var(--text)}
+
+/* ---- footer ---- */
+.footer{text-align:center;padding:24px 16px 32px;font-size:12px;color:var(--text-dim)}
+</style>
+</head>
+<body>
+
+<div class="container" id="app">
+
+  <!-- ====== LOADING ====== -->
+  <div id="sec-loading" class="center" style="padding:60px 0">
+    <div class="spinner"></div>
+    <p style="color:var(--text-muted);font-size:13px;margin-top:12px">Загрузка…</p>
+  </div>
+
+  <!-- ====== LANDING (not logged in) ====== -->
+  <div id="sec-landing" class="hidden">
+    <div class="hero">
+      <div class="hero-logo">
+        <svg viewBox="0 0 56 56" fill="none">
+          <rect width="56" height="56" rx="14" fill="url(#hg)"/>
+          <path d="M16 40V16l14 12-14 12z" fill="#fff"/>
+          <path d="M28 40V16l14 12-14 12z" fill="rgba(255,255,255,0.6)"/>
+          <defs><linearGradient id="hg" x1="0" y1="0" x2="56" y2="56"><stop offset="0" stop-color="#7c5cfc"/><stop offset="1" stop-color="#4f3cc4"/></linearGradient></defs>
+        </svg>
+      </div>
+      <h1>YouTube без рекламы<br>на любом телевизоре</h1>
+      <p>Установите Litetube на Android TV, активируйте через телефон — и смотрите видео без рекламы через собственный прокси-сервер.</p>
+      <div class="hero-btns">
+        <button class="btn btn-primary btn-lg" id="btn-hero-start">Начать бесплатно</button>
+        <a href="/app" class="btn btn-outline btn-lg">Скачать APK</a>
+      </div>
+    </div>
+
+    <div class="features">
+      <div class="feature">
+        <div class="feature-icon">🚫</div>
+        <h3>Без рекламы</h3>
+        <p>Никаких вставок, баннеров и спонсорских блоков</p>
+      </div>
+      <div class="feature">
+        <div class="feature-icon">⚡</div>
+        <h3>Быстрый прокси</h3>
+        <p>Персональный сервер — видео не тормозит</p>
+      </div>
+      <div class="feature">
+        <div class="feature-icon">📱</div>
+        <h3>Активация по QR</h3>
+        <p>Отсканируйте код с экрана ТВ — и готово</p>
+      </div>
+    </div>
+
+    <!-- Auth forms -->
+    <div class="card" id="auth-card">
+      <div class="tabs">
+        <button class="tab active" data-tab="login" id="tab-login">Вход</button>
+        <button class="tab" data-tab="signup" id="tab-signup">Регистрация</button>
+      </div>
+
+      <form id="form-login">
+        <div class="field">
+          <label>Email</label>
+          <input type="email" id="login-email" placeholder="you@example.com" autocomplete="email" required>
+        </div>
+        <div class="field">
+          <label>Пароль</label>
+          <input type="password" id="login-password" placeholder="••••••••" autocomplete="current-password" required>
+        </div>
+        <div class="form-check mb16">
+          <input type="checkbox" id="login-remember">
+          <label for="login-remember">Запомнить на 30 дней</label>
+        </div>
+        <div id="login-err" class="msg msg-error hidden"></div>
+        <button type="submit" class="btn btn-primary btn-block" id="login-btn">Войти</button>
+      </form>
+
+      <form id="form-signup" class="hidden">
+        <div class="field">
+          <label>Email</label>
+          <input type="email" id="signup-email" placeholder="you@example.com" autocomplete="email" required>
+        </div>
+        <div class="field">
+          <label>Пароль</label>
+          <input type="password" id="signup-password" placeholder="минимум 8 символов" autocomplete="new-password" minlength="8" required>
+        </div>
+        <div class="field">
+          <label>Повторите пароль</label>
+          <input type="password" id="signup-password2" placeholder="••••••••" autocomplete="new-password" required>
+        </div>
+        <div id="signup-err" class="msg msg-error hidden"></div>
+        <button type="submit" class="btn btn-primary btn-block" id="signup-btn">Зарегистрироваться</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- ====== SUSPENDED / EXPIRED ====== -->
+  <div id="sec-suspended" class="hidden">
+    <div class="card">
+      <h2 style="font-size:18px;font-weight:600;text-align:center;margin-bottom:4px">Доступ приостановлен</h2>
+      <div class="msg msg-warn mt16" id="suspended-msg"></div>
+      <div class="center mt20">
+        <button class="btn btn-primary btn-lg" id="btn-suspended-pay">Оформить подписку — 199 ₽ / месяц</button>
+      </div>
+      <div class="center mt8">
+        <button class="btn btn-outline btn-sm" id="btn-suspended-recheck">Перепроверить</button>
+        <button class="btn btn-outline btn-sm" id="btn-suspended-logout" style="margin-left:8px">Выйти</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ====== DASHBOARD (logged in) ====== -->
+  <div id="sec-dashboard" class="hidden">
+
+    <!-- Navbar -->
+    <div class="navbar">
+      <div class="navbar-brand">
+        <svg viewBox="0 0 28 28" fill="none" style="width:24px;height:24px">
+          <rect width="28" height="28" rx="7" fill="url(#hn)"/>
+          <path d="M8 20V8l7 6-7 6z" fill="#fff"/>
+          <path d="M14 20V8l7 6-7 6z" fill="rgba(255,255,255,0.6)"/>
+          <defs><linearGradient id="hn" x1="0" y1="0" x2="28" y2="28"><stop offset="0" stop-color="#7c5cfc"/><stop offset="1" stop-color="#4f3cc4"/></linearGradient></defs>
+        </svg>
+        Litetube
+      </div>
+      <div>
+        <span class="badge badge-neutral" id="dash-status-badge">trial</span>
+        <button class="btn btn-outline btn-sm" id="btn-logout" style="margin-left:8px">Выйти</button>
+      </div>
+    </div>
+
+    <!-- Subscription status card -->
+    <div class="card sub-card" id="sub-card">
+      <div id="sub-status-trial">
+        <div class="sub-title" style="color:var(--text-muted)">Пробный период</div>
+        <div class="sub-days" id="trial-days">3</div>
+        <div class="sub-detail" id="trial-label">дня бесплатного доступа</div>
+        <button class="btn btn-primary btn-block mt12" id="btn-pay-from-trial">Оформить подписку — 199 ₽ / месяц</button>
+      </div>
+      <div id="sub-status-active" class="hidden">
+        <div class="sub-title" style="color:var(--success)">Подписка активна</div>
+        <div class="sub-days" style="color:var(--success)" id="active-until">…</div>
+        <div class="sub-detail" id="active-label">действует до …</div>
+        <button class="btn btn-outline btn-block mt12" id="btn-extend">Продлить подписку</button>
+      </div>
+      <div id="sub-status-expired" class="hidden">
+        <div class="sub-title" style="color:var(--warn)">Подписка не активна</div>
+        <div class="sub-detail" id="expired-msg">Пробный период завершён. Оформите подписку для продолжения.</div>
+        <button class="btn btn-primary btn-block mt12" id="btn-pay-from-expired">Оформить подписку — 199 ₽ / месяц</button>
+      </div>
+      <div id="sub-status-banned" class="hidden">
+        <div class="sub-title" style="color:var(--error)">Аккаунт заблокирован</div>
+        <div class="sub-detail" id="banned-msg">Обратитесь в поддержку.</div>
+      </div>
+    </div>
+
+    <!-- Quick actions -->
+    <div class="card">
+      <h3 style="font-size:14px;font-weight:600;margin-bottom:12px">Быстрые действия</h3>
+      <div class="actions">
+        <a href="/activate" class="btn btn-outline">
+          <span>📺</span> Активировать телевизор
+        </a>
+        <a href="/app" class="btn btn-outline">
+          <span>📦</span> Скачать APK для ТВ
+        </a>
+        <button class="btn btn-outline" id="btn-refresh-proxy">
+          <span>🔄</span> Обновить прокси-доступ
+        </button>
+      </div>
+      <div id="proxy-detail" class="proxy-info hidden mt12"></div>
+    </div>
+
+    <!-- Account info -->
+    <div class="card">
+      <h3 style="font-size:14px;font-weight:600;margin-bottom:8px">Аккаунт</h3>
+      <div class="proxy-info" id="account-info"></div>
+    </div>
+
+  </div>
+
+  <!-- ====== PAYMENT PAGE ====== -->
+  <div id="sec-payment" class="hidden">
+    <div class="card">
+      <h2 style="font-size:18px;font-weight:600;text-align:center;margin-bottom:4px">Оформление подписки</h2>
+      <p style="color:var(--text-muted);font-size:13px;text-align:center;margin-bottom:20px">Доступ ко всем функциям Litetube</p>
+
+      <div style="text-align:center;margin-bottom:20px">
+        <span style="font-size:28px;font-weight:700">199 ₽</span>
+        <span style="font-size:14px;color:var(--text-muted)"> / месяц</span>
+      </div>
+
+      <div id="pay-err" class="msg msg-error hidden"></div>
+      <button class="btn btn-primary btn-block btn-lg" id="btn-pay">Оплатить 199 ₽</button>
+      <p style="color:var(--text-dim);font-size:11px;text-align:center;margin-top:10px">
+        Вы будете перенаправлены на страницу оплаты Robokassa.<br>
+        После оплаты подписка активируется автоматически.
+      </p>
+    </div>
+    <div class="center mt16">
+      <a href="/" class="btn btn-outline btn-sm">← Назад</a>
+    </div>
+  </div>
+
+</div>
+
+<div class="footer">
+  Litetube &copy; 2026 &middot; <a href="/activate">Активация</a> &middot; <a href="/app">Скачать</a>
+</div>
+
+<script>
+(function(){
+  'use strict';
+
+  var $ = function(s){return document.querySelector(s);};
+  var $$ = function(s){return document.querySelectorAll(s);};
+
+  var user = null;
+
+  // ---- helpers ----
+  function show(sel){ $(sel).classList.remove('hidden'); }
+  function hide(sel){ $(sel).classList.add('hidden'); }
+  function hideAll(){ ['#sec-loading','#sec-landing','#sec-dashboard','#sec-payment','#sec-suspended'].forEach(function(s){hide(s);}); }
+  function setLoading(btn, loading){
+    btn.disabled = loading;
+    btn.dataset.orig = btn.dataset.orig || btn.textContent;
+    btn.textContent = loading ? 'Подождите…' : btn.dataset.orig;
+  }
+
+  function api(method, path, body){
+    return fetch(path, {
+      method: method,
+      headers: body ? {'Content-Type':'application/json'} : {},
+      body: body ? JSON.stringify(body) : undefined,
+      credentials: 'same-origin'
+    }).then(function(r){
+      return r.json().then(function(data){ return {status:r.status, data:data}; });
+    });
+  }
+
+  function formatDate(iso){
+    if (!iso) return '…';
+    return new Date(iso).toLocaleDateString('ru-RU',{day:'numeric',month:'long',year:'numeric'});
+  }
+
+  function plural(n, one, few, many){
+    var m = n % 10, h = n % 100;
+    if (h >= 11 && h <= 19) return many;
+    if (m === 1) return one;
+    if (m >= 2 && m <= 4) return few;
+    return many;
+  }
+
+  // ---- auth check ----
+  function checkAuth(){
+    hideAll();show('#sec-loading');
+    api('GET','/api/me').then(function(r){
+      if (r.status === 200) { user = r.data; showDashboard(); }
+      else if (r.status === 403) {
+        user = null;
+        var reason = (r.data && r.data.detail) || '';
+        if (reason.indexOf('banned') !== -1) showSuspended('Аккаунт заблокирован. Обратитесь в поддержку.');
+        else if (reason.indexOf('trial_expired') !== -1) showSuspended('Пробный период завершён. Оформите подписку для продолжения.');
+        else if (reason.indexOf('subscription_expired') !== -1) showSuspended('Подписка истекла. Продлите для продолжения.');
+        else showSuspended('Доступ приостановлен. Оформите подписку.');
+      }
+      else { user = null; showLanding(); }
+    }).catch(function(){ user = null; showLanding(); });
+  }
+
+  function showSuspended(msg){
+    hideAll();show('#sec-suspended');
+    $('#suspended-msg').textContent = msg;
+  }
+
+  // ---- landing ----
+  function showLanding(){
+    hideAll();show('#sec-landing');
+    // reset forms
+    $$('#form-login input,#form-signup input').forEach(function(i){ i.value = ''; });
+    hide('#login-err');hide('#signup-err');
+    switchTab('login');
+  }
+
+  // ---- dashboard ----
+  function showDashboard(){
+    if (!user) return showLanding();
+    hideAll();show('#sec-dashboard');
+    $('#account-info').innerHTML =
+      '<strong>Email:</strong> ' + (user.email || '…') + '<br>' +
+      '<strong>Статус:</strong> ' + statusLabel(user.status);
+
+    // subscription card
+    hide('#sub-status-trial');hide('#sub-status-active');
+    hide('#sub-status-expired');hide('#sub-status-banned');
+
+    var card = $('#sub-card');
+    card.className = 'card sub-card';
+
+    if (user.status === 'active' && user.paid_until) {
+      card.classList.add('sub-active');
+      show('#sub-status-active');
+      $('#active-until').textContent = formatDate(user.paid_until);
+      $('#active-label').textContent = 'действует до ' + formatDate(user.paid_until);
+    } else if (user.status === 'banned') {
+      card.classList.add('sub-expired');
+      show('#sub-status-banned');
+      $('#banned-msg').textContent = user.banned_reason
+        ? 'Причина: ' + user.banned_reason + '. Обратитесь в поддержку.'
+        : 'Аккаунт заблокирован. Обратитесь в поддержку.';
+    } else if (user.status === 'expired') {
+      card.classList.add('sub-expired');
+      show('#sub-status-expired');
+    } else {
+      // trial
+      card.classList.add('sub-trial');
+      show('#sub-status-trial');
+      var d = (user.trial_days_left != null) ? user.trial_days_left : 3;
+      $('#trial-days').textContent = d;
+      $('#trial-label').textContent = plural(d,'день','дня','дней') + ' бесплатного доступа';
+    }
+
+    // status badge
+    var badge = $('#dash-status-badge');
+    badge.textContent = statusLabel(user.status);
+    badge.className = 'badge';
+    if (user.status === 'active') badge.classList.add('badge-success');
+    else if (user.status === 'trial') badge.classList.add('badge-neutral');
+    else if (user.status === 'expired') badge.classList.add('badge-warn');
+    else badge.classList.add('badge-error');
+
+    // proxy info hidden until refresh
+    hide('#proxy-detail');
+  }
+
+  function statusLabel(s){
+    var map = {trial:'Пробный',active:'Активна',expired:'Истекла',banned:'Заблокирован'};
+    return map[s] || s;
+  }
+
+  // ---- payment page ----
+  function showPayment(){
+    hideAll();show('#sec-payment');
+    hide('#pay-err');
+  }
+
+  $('#btn-pay').addEventListener('click', function(){
+    var btn = this;
+    setLoading(btn, true);
+    hide('#pay-err');
+    api('POST','/api/billing/pay', {currency:'RUB'}).then(function(r){
+      setLoading(btn, false);
+      if (r.status === 200 && r.data && r.data.url) {
+        window.location.href = r.data.url;
+      } else if (r.status === 403) {
+        hideAll();showSuspended('Доступ приостановлен. Оформите подписку для продолжения.');
+      } else if (r.status === 401) {
+        hideAll();showLanding();
+      } else {
+        $('#pay-err').textContent = 'Не удалось создать платёж. Попробуйте позже.';
+        show('#pay-err');
+      }
+    }).catch(function(){
+      setLoading(btn, false);
+      $('#pay-err').textContent = 'Нет соединения с сервером.';
+      show('#pay-err');
+    });
+  });
+
+  // ---- pay buttons from dashboard ----
+  $('#btn-pay-from-trial').addEventListener('click', showPayment);
+  $('#btn-pay-from-expired').addEventListener('click', showPayment);
+  $('#btn-extend').addEventListener('click', showPayment);
+
+  // ---- suspended page buttons ----
+  $('#btn-suspended-pay').addEventListener('click', showPayment);
+  $('#btn-suspended-recheck').addEventListener('click', function(){
+    checkAuth();
+  });
+  $('#btn-suspended-logout').addEventListener('click', function(){
+    api('POST','/api/auth/logout').then(function(){ showLanding(); }).catch(function(){ showLanding(); });
+  });
+
+  // ---- proxy refresh ----
+  $('#btn-refresh-proxy').addEventListener('click', function(){
+    var btn = this;
+    setLoading(btn, true);
+    hide('#proxy-detail');
+    api('GET','/api/proxy/refresh').then(function(r){
+      setLoading(btn, false);
+      if (r.status === 200 && r.data) {
+        var d = r.data;
+        var html = '<strong>Прокси-доступ обновлён:</strong><br>' +
+          'Сервер: <code>' + (d.host || 'litetube.trfnv.ru') + '</code><br>' +
+          'Порт: <code>' + (d.port || '…') + '</code><br>' +
+          'Логин: <code>' + (d.login || '…') + '</code><br>' +
+          'Пароль: <code>' + (d.password || '…') + '</code>';
+        $('#proxy-detail').innerHTML = html;
+        show('#proxy-detail');
+      } else {
+        $('#proxy-detail').innerHTML = '<span style="color:var(--error)">Не удалось обновить прокси. Попробуйте позже.</span>';
+        show('#proxy-detail');
+      }
+    }).catch(function(){
+      setLoading(btn, false);
+      $('#proxy-detail').innerHTML = '<span style="color:var(--error)">Нет соединения с сервером.</span>';
+      show('#proxy-detail');
+    });
+  });
+
+  // ---- logout ----
+  $('#btn-logout').addEventListener('click', function(){
+    api('POST','/api/auth/logout').then(function(){
+      user = null; showLanding();
+    }).catch(function(){
+      user = null; showLanding();
+    });
+  });
+
+  // ---- login form ----
+  $('#form-login').addEventListener('submit', function(e){
+    e.preventDefault();
+    var btn = $('#login-btn');
+    setLoading(btn, true); hide('#login-err');
+    api('POST','/api/auth/login',{
+      email: $('#login-email').value.trim(),
+      password: $('#login-password').value,
+      remember_me: $('#login-remember').checked
+    }).then(function(r){
+      setLoading(btn, false);
+      if (r.status === 200) { checkAuth(); }
+      else if (r.status === 401) { $('#login-err').textContent = 'Неверный email или пароль.'; show('#login-err'); }
+      else { $('#login-err').textContent = 'Ошибка сервера. Попробуйте позже.'; show('#login-err'); }
+    }).catch(function(){
+      setLoading(btn, false);
+      $('#login-err').textContent = 'Нет соединения с сервером.'; show('#login-err');
+    });
+  });
+
+  // ---- signup form ----
+  $('#form-signup').addEventListener('submit', function(e){
+    e.preventDefault();
+    var btn = $('#signup-btn');
+    var pw1 = $('#signup-password').value, pw2 = $('#signup-password2').value;
+    hide('#signup-err');
+    if (pw1.length < 8) { $('#signup-err').textContent = 'Пароль: минимум 8 символов.'; show('#signup-err'); return; }
+    if (pw1 !== pw2) { $('#signup-err').textContent = 'Пароли не совпадают.'; show('#signup-err'); return; }
+    setLoading(btn, true);
+    api('POST','/api/auth/signup',{ email:$('#signup-email').value.trim(), password:pw1 }).then(function(r){
+      setLoading(btn, false);
+      if (r.status === 200) { checkAuth(); }
+      else if (r.status === 400) {
+        $('#signup-err').textContent = r.data && r.data.detail === 'password_too_short'
+          ? 'Пароль слишком короткий.' : 'Проверьте email и пароль.';
+        show('#signup-err');
+      } else if (r.status === 409) {
+        $('#signup-err').textContent = 'Email уже зарегистрирован. Войдите.'; show('#signup-err');
+        switchTab('login');
+      } else {
+        $('#signup-err').textContent = 'Ошибка сервера.'; show('#signup-err');
+      }
+    }).catch(function(){
+      setLoading(btn, false);
+      $('#signup-err').textContent = 'Нет соединения.'; show('#signup-err');
+    });
+  });
+
+  // ---- tab switching ----
+  function switchTab(name){
+    $$('.tab').forEach(function(t){ t.classList.toggle('active', t.dataset.tab === name); });
+    if (name === 'login') { show('#form-login');hide('#form-signup');hide('#signup-err'); }
+    else { show('#form-signup');hide('#form-login');hide('#login-err'); }
+  }
+  $('#tab-login').addEventListener('click', function(){switchTab('login');});
+  $('#tab-signup').addEventListener('click', function(){switchTab('signup');});
+
+  // ---- hero "start" button → scroll to auth card ----
+  $('#btn-hero-start').addEventListener('click', function(){
+    $('#auth-card').scrollIntoView({behavior:'smooth'});
+  });
+
+  // ---- start ----
+  checkAuth();
+})();
+</script>
+
+</body>
+</html>

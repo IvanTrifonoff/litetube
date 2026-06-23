@@ -1,0 +1,83 @@
+# Litetube CI — run on every push to main and PRs.
+# Validates (py_compile + bash -n) all code, runs pytest,
+# deploys to VPS on push to main (if secrets are configured).
+#
+# Required GitHub Secrets for deploy:
+#   VPS_HOST      — IP or hostname of the production VPS
+#   VPS_USER      — SSH user (e.g. root)
+#   VPS_SSH_KEY   — private SSH key for authentication
+#
+# Setup on VPS (one-time):
+#   git clone https://github.com/IvanTrifonoff/litetube /srv/litetube
+#   # The deploy job does: cd /srv/litetube && git pull && cd backend && ./setup.sh
+
+name: Litetube CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          cd backend
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: py_compile backend *.py
+        run: |
+          cd backend
+          find api scripts -name '*.py' -not -path '*/__pycache__/*' | while read f; do
+            echo "  $f"
+            python -m py_compile "$f"
+          done
+
+      - name: bash -n *.sh
+        run: |
+          bash -n backend/setup.sh && echo "  setup.sh OK"
+          for f in backend/scripts/*.sh; do
+            [ -f "$f" ] && bash -n "$f" && echo "  $f OK"
+          done
+          [ -f tv-fork-patches/build-apk.sh ] && bash -n tv-fork-patches/build-apk.sh && echo "  build-apk.sh OK" || true
+          [ -f tv-fork-patches/apply.sh ] && bash -n tv-fork-patches/apply.sh && echo "  apply.sh OK" || true
+
+      - name: Run pytest
+        run: |
+          cd backend
+          python -m pytest tests/ -v --tb=short
+
+  deploy:
+    needs: validate
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    concurrency: deploy
+
+    steps:
+      - name: Deploy to VPS
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            set -e
+            cd /srv/litetube
+            git pull origin main
+            cd backend
+            ./setup.sh

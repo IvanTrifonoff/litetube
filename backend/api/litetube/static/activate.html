@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="color-scheme" content="dark">
+<title>Litetube — активация ТВ</title>
+<style>
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+  :root{
+    --bg:#0a0a14;--card:#13132a;--card-border:#1e1e3a;
+    --text:#e0e0f0;--text-muted:#8888aa;--text-dim:#55557a;
+    --accent:#7c5cfc;--accent-hover:#9b7fff;
+    --success:#10b981;--success-bg:#0a2a1a;--success-border:#0f4a2a;
+    --warn:#f59e0b;--warn-bg:#2a1f0a;--warn-border:#4a3a0a;
+    --error:#ef4444;--error-bg:#2a0a0a;--error-border:#4a0a0a;
+    --input-bg:#1a1a2e;--input-border:#2a2a4a;--input-focus:#3a3a6a;
+    --radius:12px;--radius-sm:8px;
+  }
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+    background:var(--bg);color:var(--text);
+    min-height:100dvh;display:flex;flex-direction:column;align-items:center;
+    justify-content:center;padding:16px;
+    background-image:radial-gradient(ellipse at 50% 0%,rgba(124,92,252,0.08) 0%,transparent 60%);
+  }
+  .card{
+    background:var(--card);border:1px solid var(--card-border);
+    border-radius:var(--radius);padding:28px 24px;
+    width:100%;max-width:400px;
+  }
+  .logo{text-align:center;margin-bottom:24px}
+  .logo svg{width:40px;height:40px}
+  h1{font-size:20px;font-weight:600;text-align:center;margin-bottom:4px;letter-spacing:-0.3px}
+  .subtitle{font-size:13px;color:var(--text-muted);text-align:center;margin-bottom:24px}
+
+  /* code display */
+  .code-block{
+    background:var(--input-bg);border:2px dashed var(--input-border);
+    border-radius:var(--radius);padding:20px;text-align:center;margin-bottom:20px;
+    transition:border-color .2s;
+  }
+  .code-block:focus-within{border-color:var(--accent)}
+  .code-label{font-size:12px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px}
+  .code-digits{
+    font-family:'SF Mono','Fira Code','Cascadia Code','JetBrains Mono',monospace;
+    font-size:48px;font-weight:700;letter-spacing:8px;color:var(--text);
+    background:transparent;border:none;outline:none;width:100%;text-align:center;
+    caret-color:var(--accent);
+  }
+  .code-digits::placeholder{color:var(--text-dim);opacity:0.5}
+  .code-digits:disabled{opacity:0.6}
+
+  /* status badges */
+  .badge{
+    display:inline-flex;align-items:center;gap:6px;
+    font-size:12px;font-weight:600;padding:6px 12px;border-radius:20px;
+  }
+  .badge-success{background:var(--success-bg);color:var(--success);border:1px solid var(--success-border)}
+  .badge-warn{background:var(--warn-bg);color:var(--warn);border:1px solid var(--warn-border)}
+  .badge-error{background:var(--error-bg);color:var(--error);border:1px solid var(--error-border)}
+  .badge-neutral{background:var(--input-bg);color:var(--text-muted);border:1px solid var(--input-border)}
+
+  /* message box */
+  .msg{font-size:13px;line-height:1.5;text-align:center;padding:12px 16px;border-radius:var(--radius-sm);margin-bottom:16px}
+  .msg-success{background:var(--success-bg);color:var(--success);border:1px solid var(--success-border)}
+  .msg-warn{background:var(--warn-bg);color:var(--warn);border:1px solid var(--warn-border)}
+  .msg-error{background:var(--error-bg);color:var(--error);border:1px solid var(--error-border)}
+
+  /* buttons */
+  .btn{
+    display:block;width:100%;padding:12px 20px;border:none;border-radius:var(--radius-sm);
+    font-size:15px;font-weight:600;cursor:pointer;text-align:center;
+    transition:background .15s,transform .1s,opacity .15s;
+    font-family:inherit;
+  }
+  .btn:active{transform:scale(0.98)}
+  .btn:disabled{opacity:0.4;cursor:not-allowed;transform:none}
+  .btn-primary{background:var(--accent);color:#fff}
+  .btn-primary:hover:not(:disabled){background:var(--accent-hover)}
+  .btn-success{background:var(--success);color:#fff}
+  .btn-outline{
+    background:transparent;color:var(--accent);border:1.5px solid var(--accent);
+  }
+  .btn-outline:hover:not(:disabled){background:rgba(124,92,252,0.08)}
+  .btn-sm{padding:8px 16px;font-size:13px;width:auto;display:inline-flex;align-items:center;gap:6px}
+
+  /* form inputs */
+  .field{margin-bottom:14px}
+  .field label{display:block;font-size:12px;color:var(--text-muted);margin-bottom:5px;font-weight:500}
+  .field input{
+    width:100%;padding:11px 14px;font-size:14px;border:1.5px solid var(--input-border);
+    border-radius:var(--radius-sm);background:var(--input-bg);color:var(--text);
+    outline:none;font-family:inherit;
+    transition:border-color .15s;
+  }
+  .field input:focus{border-color:var(--accent)}
+  .field input::placeholder{color:var(--text-dim)}
+
+  /* tabs */
+  .tabs{display:flex;gap:0;margin-bottom:20px;border-bottom:1.5px solid var(--input-border)}
+  .tab{
+    flex:1;text-align:center;padding:10px 0;font-size:13px;font-weight:500;
+    color:var(--text-muted);cursor:pointer;border-bottom:2px solid transparent;
+    transition:color .15s,border-color .15s;background:none;border-top:none;border-left:none;border-right:none;
+    font-family:inherit;
+  }
+  .tab.active{color:var(--accent);border-bottom-color:var(--accent)}
+
+  /* helpers */
+  .spinner{
+    display:inline-block;width:20px;height:20px;border:2px solid var(--input-border);
+    border-top-color:var(--accent);border-radius:50%;animation:spin .6s linear infinite;
+  }
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .center{text-align:center}
+  .mt8{margin-top:8px}.mt12{margin-top:12px}.mt16{margin-top:16px}.mt20{margin-top:20px}
+  .gap8{gap:8px}.gap12{gap:12px}
+  .flex{display:flex}.flex-col{flex-direction:column}.items-center{align-items:center}
+
+
+  .hidden{display:none!important}
+
+  /* success icon */
+  .icon-check{width:56px;height:56px;margin:0 auto 12px}
+  .icon-check circle{fill:var(--success)}
+  .icon-check path{stroke:#fff;stroke-width:3;stroke-linecap:round;stroke-linejoin:round;fill:none}
+
+  /* link */
+  a{color:var(--accent);text-decoration:none}
+  a:hover{text-decoration:underline}
+
+  /* download banner */
+  .download-banner{
+    background:var(--input-bg);border:1px solid var(--input-border);
+    border-radius:var(--radius-sm);padding:14px 16px;
+    margin-bottom:20px;text-align:center;
+  }
+  .download-banner-icon{font-size:24px;margin-bottom:4px}
+  .download-banner-text{font-size:13px;color:var(--text-muted);margin-bottom:8px}
+  .download-btn{margin:0 auto 6px;display:inline-flex!important}
+  .download-hint{font-size:11px;color:var(--text-dim);margin:0}
+</style>
+</head>
+<body>
+
+<div class="card" id="app">
+
+  <!-- logo + title -->
+  <div class="logo">
+    <svg viewBox="0 0 40 40" fill="none">
+      <rect width="40" height="40" rx="10" fill="url(#g)"/>
+      <path d="M12 28V12l10 8-10 8z" fill="#fff"/>
+      <path d="M20 28V12l10 8-10 8z" fill="rgba(255,255,255,0.6)"/>
+      <defs><linearGradient id="g" x1="0" y1="0" x2="40" y2="40"><stop offset="0" stop-color="#7c5cfc"/><stop offset="1" stop-color="#4f3cc4"/></linearGradient></defs>
+    </svg>
+  </div>
+
+  <!-- ====== SECTION: DOWNLOAD BANNER (always visible on top) ====== -->
+  <div id="sec-download" class="download-banner hidden">
+    <div class="download-banner-icon">📦</div>
+    <div class="download-banner-text">
+      <strong>Шаг 1:</strong> Установите приложение на телевизор
+    </div>
+    <a href="/app" class="btn btn-primary btn-sm download-btn" style="width:auto">Скачать APK</a>
+    <p class="download-hint">Android TV 5.0+ &middot; перенесите на ТВ через флешку или Send Files to TV</p>
+  </div>
+
+  <!-- ====== SECTION: LOADING ====== -->
+  <div id="sec-loading" class="center">
+    <div class="spinner"></div>
+    <p class="subtitle mt12">Проверяем авторизацию…</p>
+  </div>
+
+  <!-- ====== SECTION: LOGIN / SIGNUP ====== -->
+  <div id="sec-auth" class="hidden">
+    <h1>Войдите в Litetube</h1>
+    <p class="subtitle">чтобы привязать телевизор к аккаунту</p>
+
+    <div class="tabs">
+      <button class="tab active" data-tab="login" id="tab-login">Вход</button>
+      <button class="tab" data-tab="signup" id="tab-signup">Регистрация</button>
+    </div>
+
+    <!-- login form -->
+    <form id="form-login">
+      <div class="field">
+        <label>Email</label>
+        <input type="email" id="login-email" placeholder="you@example.com" autocomplete="email" required>
+      </div>
+      <div class="field">
+        <label>Пароль</label>
+        <input type="password" id="login-password" placeholder="••••••••" autocomplete="current-password" required>
+      </div>
+      <div id="login-err" class="msg msg-error hidden"></div>
+      <button type="submit" class="btn btn-primary" id="login-btn">Войти</button>
+    </form>
+
+    <!-- signup form -->
+    <form id="form-signup" class="hidden">
+      <div class="field">
+        <label>Email</label>
+        <input type="email" id="signup-email" placeholder="you@example.com" autocomplete="email" required>
+      </div>
+      <div class="field">
+        <label>Пароль</label>
+        <input type="password" id="signup-password" placeholder="минимум 8 символов" autocomplete="new-password" minlength="8" required>
+      </div>
+      <div class="field">
+        <label>Повторите пароль</label>
+        <input type="password" id="signup-password2" placeholder="••••••••" autocomplete="new-password" required>
+      </div>
+      <div id="signup-err" class="msg msg-error hidden"></div>
+      <button type="submit" class="btn btn-primary" id="signup-btn">Зарегистрироваться</button>
+    </form>
+  </div>
+
+  <!-- ====== SECTION: SUSPENDED ACCOUNT ====== -->
+  <div id="sec-suspended" class="hidden">
+    <h1>Аккаунт приостановлен</h1>
+    <div class="msg msg-warn mt16" id="suspended-msg"></div>
+    <div class="center mt20">
+      <a href="/billing/success" class="btn btn-primary" style="text-decoration:none">Открыть оплату</a>
+    </div>
+    <div class="center mt8">
+      <button class="btn btn-outline btn-sm" id="btn-recheck">Перепроверить</button>
+    </div>
+  </div>
+
+  <!-- ====== SECTION: CODE INPUT (logged in, active) ====== -->
+  <div id="sec-code" class="hidden">
+    <h1>Привязка телевизора</h1>
+    <p class="subtitle">Код показан на экране ТВ</p>
+
+    <div class="code-block">
+      <div class="code-label">Код активации</div>
+      <input type="text" class="code-digits" id="code-input"
+             inputmode="numeric" pattern="[0-9]{6}" maxlength="6"
+             placeholder="000000" autocomplete="off" autofocus>
+      <button class="btn btn-outline btn-sm mt8 hidden" id="btn-clear-code" style="display:none">Другой код</button>
+    </div>
+
+    <div id="claim-err" class="msg msg-error hidden"></div>
+    <div id="claim-ok" class="msg msg-success hidden"></div>
+
+    <button class="btn btn-primary" id="btn-claim" disabled>Введите код с экрана ТВ</button>
+    <p class="subtitle mt8" id="claim-hint">Откройте приложение Litetube на телевизоре — на экране появится 6-значный код.</p>
+  </div>
+
+  <!-- ====== SECTION: SUCCESS ====== -->
+  <div id="sec-success" class="hidden">
+    <div class="icon-check">
+      <svg viewBox="0 0 56 56"><circle cx="28" cy="28" r="28"/><path d="M16 28l8 8L40 20"/></svg>
+    </div>
+    <h1>Готово!</h1>
+    <p class="subtitle">Телевизор привязан к аккаунту.<br>Можно закрыть эту страницу.</p>
+  </div>
+
+</div>
+
+<script>
+(function(){
+  'use strict';
+
+  var $ = function(s){return document.querySelector(s)};
+  var $$ = function(s){return document.querySelectorAll(s)};
+
+  var urlCode = (new URL(location.href)).searchParams.get('code') || '';
+  if (urlCode && !/^\d{6}$/.test(urlCode)) urlCode = '';
+
+  // ---- state helpers ----
+  function show(sel){ $(sel).classList.remove('hidden'); }
+  function hide(sel){ $(sel).classList.add('hidden'); }
+  function hideAll(){
+    ['#sec-loading','#sec-auth','#sec-suspended','#sec-code','#sec-success'].forEach(function(s){hide(s);});
+  }
+  function setBtnLoading(btn, loading){
+    btn.disabled = loading;
+    btn.dataset.origText = btn.dataset.origText || btn.textContent;
+    btn.textContent = loading ? 'Подождите…' : btn.dataset.origText;
+  }
+
+  // ---- api helpers ----
+  function api(method, path, body){
+    return fetch(path, {
+      method: method,
+      headers: body ? {'Content-Type':'application/json'} : {},
+      body: body ? JSON.stringify(body) : undefined,
+      credentials: 'same-origin'
+    }).then(function(r){ return r.json().then(function(data){ return {status:r.status, data:data}; }); });
+  }
+
+  // ---- check auth state on load ----
+  function checkAuth(){
+    hideAll();show('#sec-loading');
+    api('GET','/api/me').then(function(r){
+      if (r.status === 200) {
+        // Logged in, active
+        showCodeSection();
+      } else if (r.status === 403) {
+        // Banned or expired
+        var reason = (r.data && r.data.detail) || '';
+        var msg = 'Подписка истекла или аккаунт заблокирован.';
+        if (reason.indexOf('banned') !== -1) msg = 'Аккаунт заблокирован.';
+        else if (reason.indexOf('trial_expired') !== -1) msg = 'Пробный период завершён. Оформите подписку.';
+        else if (reason.indexOf('subscription_expired') !== -1) msg = 'Подписка истекла. Продлите для продолжения.';
+        showSuspended(msg);
+      } else {
+        // 401 or other → not logged in
+        showAuth();
+      }
+    }).catch(function(){
+      showAuth(); // network error → assume not logged in
+    });
+  }
+
+  function showCodeSection(){
+    hideAll();show('#sec-code');
+    show('#sec-download');
+    if (urlCode) {
+      $('#code-input').value = urlCode;
+      $('#claim-hint').textContent = 'Код из QR-ссылки. Нажмите кнопку для привязки.';
+      $('#btn-claim').disabled = false;
+      $('#btn-claim').textContent = 'Привязать телевизор';
+      // show "different code" button
+      $('#btn-clear-code').style.display = '';
+      $('#btn-clear-code').classList.remove('hidden');
+    }
+  }
+
+  function showSuspended(msg){
+    hideAll();show('#sec-suspended');
+    show('#sec-download');
+    $('#suspended-msg').textContent = msg;
+  }
+
+  function showAuth(){
+    hideAll();show('#sec-auth');
+    show('#sec-download');
+  }
+
+  // ---- code input: enable button when 6 digits ----
+  $('#code-input').addEventListener('input', function(){
+    var v = this.value.replace(/\D/g,'').slice(0,6);
+    this.value = v;
+    var ok = v.length === 6;
+    $('#btn-claim').disabled = !ok;
+    $('#claim-hint').textContent = ok ? 'Нажмите кнопку для привязки' : 'Введите 6 цифр с экрана ТВ';
+    hide('#claim-err');hide('#claim-ok');
+  });
+
+  // ---- clear pre-filled code (enter different code) ----
+  $('#btn-clear-code').addEventListener('click', function(){
+    urlCode = '';
+    $('#code-input').value = '';
+    $('#code-input').disabled = false;
+    $('#code-input').focus();
+    $('#btn-claim').disabled = true;
+    $('#btn-claim').textContent = 'Введите код с экрана ТВ';
+    $('#claim-hint').textContent = 'Введите 6 цифр с экрана ТВ';
+    $('#btn-clear-code').style.display = 'none';
+    $('#btn-clear-code').classList.add('hidden');
+    hide('#claim-err');hide('#claim-ok');
+  });
+
+  // ---- claim button ----
+  $('#btn-claim').addEventListener('click', function(){
+    var code = $('#code-input').value;
+    if (!/^\d{6}$/.test(code)) return;
+    var btn = this;
+    setBtnLoading(btn, true);
+    hide('#claim-err');hide('#claim-ok');
+
+    api('POST','/api/devices/claim/complete', {code:code}).then(function(r){
+      setBtnLoading(btn, false);
+      if (r.status === 200 && r.data && r.data.ok) {
+        hideAll();show('#sec-success');hide('#sec-download');
+      } else if (r.status === 400) {
+        showClaimErr('Неверный формат кода. Введите 6 цифр.');
+      } else if (r.status === 404) {
+        showClaimErr('Код не найден. Возможно, он устарел — перезапустите приложение на ТВ.');
+      } else if (r.status === 409) {
+        showClaimErr('Код уже использован. Перезапустите приложение на ТВ для нового кода.');
+      } else if (r.status === 410) {
+        showClaimErr('Код истёк (прошло больше 10 минут). Перезапустите приложение на ТВ.');
+      } else if (r.status === 429) {
+        showClaimErr('Слишком много попыток. Подождите минуту.');
+      } else if (r.status === 401 || r.status === 403) {
+        // session expired mid-claim
+        showAuth();
+      } else {
+        showClaimErr('Ошибка сервера. Попробуйте позже.');
+      }
+    }).catch(function(){
+      setBtnLoading(btn, false);
+      showClaimErr('Нет соединения с сервером. Проверьте интернет.');
+    });
+  });
+
+  function showClaimErr(msg){
+    $('#claim-err').textContent = msg;
+    show('#claim-err');
+  }
+
+  // ---- recheck button (suspended page) ----
+  $('#btn-recheck').addEventListener('click', function(){
+    var btn = this;
+    btn.disabled = true;
+    btn.textContent = 'Проверяем…';
+    api('GET','/api/me').then(function(r){
+      btn.disabled = false;
+      btn.textContent = 'Перепроверить';
+      if (r.status === 200) {
+        showCodeSection();
+      } else {
+        showSuspended($('#suspended-msg').textContent || 'Подписка всё ещё не активна.');
+      }
+    }).catch(function(){
+      btn.disabled = false;
+      btn.textContent = 'Перепроверить';
+      showSuspended('Нет соединения. Попробуйте позже.');
+    });
+  });
+
+  // ---- login form ----
+  $('#form-login').addEventListener('submit', function(e){
+    e.preventDefault();
+    var btn = $('#login-btn');
+    setBtnLoading(btn, true);
+    hide('#login-err');
+
+    api('POST','/api/auth/login',{
+      email: $('#login-email').value.trim(),
+      password: $('#login-password').value
+    }).then(function(r){
+      setBtnLoading(btn, false);
+      if (r.status === 200) {
+        // cookie set by server → re-check auth
+        checkAuth();
+      } else if (r.status === 401) {
+        $('#login-err').textContent = 'Неверный email или пароль.';
+        show('#login-err');
+      } else {
+        $('#login-err').textContent = 'Ошибка сервера. Попробуйте позже.';
+        show('#login-err');
+      }
+    }).catch(function(){
+      setBtnLoading(btn, false);
+      $('#login-err').textContent = 'Нет соединения с сервером.';
+      show('#login-err');
+    });
+  });
+
+  // ---- signup form ----
+  $('#form-signup').addEventListener('submit', function(e){
+    e.preventDefault();
+    var btn = $('#signup-btn');
+    var pw1 = $('#signup-password').value;
+    var pw2 = $('#signup-password2').value;
+    hide('#signup-err');
+
+    if (pw1.length < 8) {
+      $('#signup-err').textContent = 'Пароль должен быть не короче 8 символов.';
+      show('#signup-err');return;
+    }
+    if (pw1 !== pw2) {
+      $('#signup-err').textContent = 'Пароли не совпадают.';
+      show('#signup-err');return;
+    }
+
+    setBtnLoading(btn, true);
+    api('POST','/api/auth/signup',{
+      email: $('#signup-email').value.trim(),
+      password: pw1
+    }).then(function(r){
+      setBtnLoading(btn, false);
+      if (r.status === 200) {
+        checkAuth();
+      } else if (r.status === 400) {
+        $('#signup-err').textContent = r.data && r.data.detail === 'password_too_short'
+          ? 'Пароль слишком короткий (минимум 8 символов).'
+          : 'Проверьте правильность email и пароля.';
+        show('#signup-err');
+      } else if (r.status === 409) {
+        $('#signup-err').textContent = 'Этот email уже зарегистрирован. Войдите.';
+        show('#signup-err');
+        // switch to login tab
+        switchTab('login');
+      } else {
+        $('#signup-err').textContent = 'Ошибка сервера. Попробуйте позже.';
+        show('#signup-err');
+      }
+    }).catch(function(){
+      setBtnLoading(btn, false);
+      $('#signup-err').textContent = 'Нет соединения с сервером.';
+      show('#signup-err');
+    });
+  });
+
+  // ---- tab switching ----
+  function switchTab(name){
+    $$('.tab').forEach(function(t){
+      t.classList.toggle('active', t.dataset.tab === name);
+    });
+    if (name === 'login') { show('#form-login');hide('#form-signup');hide('#signup-err'); }
+    else { show('#form-signup');hide('#form-login');hide('#login-err'); }
+  }
+  $('#tab-login').addEventListener('click', function(){switchTab('login');});
+  $('#tab-signup').addEventListener('click', function(){switchTab('signup');});
+
+  // ---- start ----
+  checkAuth();
+})();
+</script>
+
+</body>
+</html>
