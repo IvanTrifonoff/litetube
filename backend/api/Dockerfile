@@ -9,7 +9,7 @@ WORKDIR /app
 COPY requirements.txt /app/
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY litetube /app/litetube
+COPY api/litetube /app/litetube
 COPY scripts /app/scripts
 
 # Tini for clean signal handling (essential for SIGHUP-aware reload worker).
