@@ -21,7 +21,8 @@ services:
     volumes:
       - /srv/proxy-infra/db:/srv/proxy-infra/db:rw
       - /srv/proxy-infra/3proxy-data:/var/lib/3proxy:rw
-      - /srv/proxy-infra/logs:/var/log/litetube:rw    command:
+      - /srv/proxy-infra/logs:/var/log/litetube:rw
+    command:
       [
         "uvicorn", "litetube.main:app",
         "--host", "127.0.0.1",
