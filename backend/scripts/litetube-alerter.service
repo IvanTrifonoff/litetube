@@ -1,0 +1,26 @@
+[Unit]
+Description=Litetube external alerter daemon (logs+postmarks admin 5xx)
+After=network.target docker.service
+# Ensure docker is up so /srv/proxy-infra/db/* is mounted.
+Wants=docker.service
+
+[Service]
+Type=simple
+User=root
+Group=root
+EnvironmentFile=/srv/proxy-infra/.env
+ExecStart=/usr/bin/python3 /srv/proxy-infra/scripts/alert_daemon.py
+Restart=on-failure
+RestartSec=15
+StandardOutput=append:/var/log/litetube/alert_daemon.log
+StandardError=append:/var/log/litetube/alert_daemon.log
+
+# Hardening (defense-in-depth — daemon reads host nginx logs and the DB).
+NoNewPrivileges=false
+ProtectSystem=full
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/log/litetube /srv/proxy-infra/db /srv/proxy-infra/logs
+
+[Install]
+WantedBy=multi-user.target

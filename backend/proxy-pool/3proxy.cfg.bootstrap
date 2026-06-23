@@ -1,0 +1,43 @@
+#!/usr/bin/3proxy
+# Litetube bootstrap 3proxy configuration.
+#
+# This file is used at first start (before any user has signed up via the
+# Litetube FastAPI). Once signup occurs, the FastAPI reload_worker overwrites
+# this file with the live user list and SIGUPs the parent 3proxy process.
+#
+# Empty-pool auth strategy: declare 'auth strong' + an unpassworable
+# 'nobody:CL:' user. With 'allow litetube_valid_only', every auth attempt
+# from a real client fails closed (3proxy never grants access to an empty
+# accounts database).
+
+daemon
+pidfile /var/lib/3proxy/3proxy.pid
+nscache 65536
+nserver 8.8.8.8
+nserver 1.1.1.1
+log /var/log/3proxy/3proxy.log D
+logformat "- +_L%t.%. %N.%p %E %U %C:%c %R:%r %O %I %h %T"
+rotate 30
+maxconn 32768
+stacksize 65536
+
+auth strong
+# No 'allow' directive -- 'auth strong' + the 'users' line is sufficient to
+# enforce identity. Any auth attempt not matching a real 'users' entry fails.
+
+# Bootstrap placeholder with an unpassworable dummy cleartext password.
+# NB: 3proxy 0.9.x refuses 'auth strong + users <name>:CL:<empty>', so we
+# supply a literal dummy string that no real client could guess. The empty
+# secret is replaced by a real per-user entry as soon as signup occurs.
+users nobody:CL:_bootstrap_locked_dummy_
+
+external 0.0.0.0
+internal 0.0.0.0
+
+flush
+socks -p11001 -i0.0.0.0 -e0.0.0.0
+
+flush
+proxy -p11002 -i0.0.0.0 -e0.0.0.0
+
+flush

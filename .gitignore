@@ -1,0 +1,56 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+.venv/
+venv/
+.pytest_cache/
+
+# Android / Gradle
+.gradle/
+build/
+*/build/
+*/.gradle/
+*.apk
+*.aab
+*.aar
+*.dex
+*.class
+.kotlin/
+local.properties
+captures/
+.cxx/
+gen/
+out/
+
+# IDE
+.idea/
+*.iml
+.vscode/
+.DS_Store
+
+# Logs / runtime state
+*.log
+*.pid
+nohup.out
+db/*.db
+db/*.db-*
+db/*.db-journal
+db/*.db-wal
+db/*.db-shm
+
+# Secrets — never commit real .env
+.env
+*.env.local
+*.env.production
+
+# Operator / LetsEncrypt staging artifacts
+keys/live/
+keys/renewal/
+
+# Misc
+*.bak
+*.swp
+.DS_Store
+Thumbs.db

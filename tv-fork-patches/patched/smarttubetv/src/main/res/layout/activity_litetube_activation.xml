@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Litetube first-launch activation screen.
+     Big title, centered QR (720dp), 6-digit code under it, status hint at bottom. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+              android:orientation="vertical"
+              android:gravity="center_horizontal"
+              android:padding="32dp"
+              android:layout_width="match_parent"
+              android:layout_height="match_parent"
+              android:background="#FF000000">
+
+    <TextView
+        android:id="@+id/litetube_title"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="12dp"
+        android:textSize="36sp"
+        android:textStyle="bold"
+        android:textColor="#FFFFFFFF"
+        android:text="@string/litetube_activation_title" />
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="6dp"
+        android:textSize="20sp"
+        android:textColor="#FFDDDDDD"
+        android:text="@string/litetube_activation_subtitle" />
+
+    <ImageView
+        android:id="@+id/litetube_qr"
+        android:layout_width="720dp"
+        android:layout_height="720dp"
+        android:layout_marginTop="24dp"
+        android:background="#FFFFFFFF"
+        android:contentDescription="@string/litetube_activation_qr_contentdesc" />
+
+    <TextView
+        android:id="@+id/litetube_code"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="16dp"
+        android:textSize="72sp"
+        android:textStyle="bold"
+        android:fontFamily="monospace"
+        android:letterSpacing="0.15"
+        android:textColor="#FFFFC107"
+        android:text="------" />
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="36dp"
+        android:gravity="center"
+        android:textSize="22sp"
+        android:textColor="#FFAAAAAA"
+        android:text="@string/litetube_activation_help" />
+
+    <TextView
+        android:id="@+id/litetube_status"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="20dp"
+        android:textSize="18sp"
+        android:textColor="#FF888888"
+        android:text="@string/litetube_activation_status_pending" />
+</LinearLayout>

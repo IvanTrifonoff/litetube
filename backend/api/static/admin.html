@@ -1,0 +1,278 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Litetube — Operator Console</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header class="app-header">
+  <h1><span class="accent">★</span> Litetube · Operator</h1>
+  <div id="me-pill"><span class="pill">loading…</span></div>
+</header>
+
+<main>
+  <div id="auth-state"></div>
+
+  <div id="console" hidden>
+    <div class="tabs">
+      <button data-tab="users"    class="active">Users</button>
+      <button data-tab="payments">Payments</button>
+      <button data-tab="proxies">Proxies</button>
+      <button data-tab="stats">Stats</button>
+      <button id="logout-btn" class="ghost" style="margin-left:auto">Logout</button>
+    </div>
+
+    <div id="tab-users"    class="card"><div class="empty">loading…</div></div>
+    <div id="tab-payments" class="card" hidden><div class="empty">loading…</div></div>
+    <div id="tab-proxies"  class="card" hidden><div class="empty">loading…</div></div>
+    <div id="tab-stats"    class="card" hidden><div class="empty">loading…</div></div>
+  </div>
+</main>
+
+<footer>Operator console — single-admin only. All actions are logged via FastAPI stdout logs.</footer>
+
+<script>
+'use strict';
+
+const $ = sel => document.querySelector(sel);
+const $$ = sel => Array.from(document.querySelectorAll(sel));
+const state = { tab: 'users', me: null };
+
+async function api(path, opts = {}) {
+  const r = await fetch(path, {
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json', ...(opts.headers || {}) },
+    ...opts,
+  });
+  if (!r.ok) {
+    let msg;
+    try { const j = await r.json(); msg = j.error || j.detail || JSON.stringify(j); }
+    catch { msg = (await r.text()) || r.statusText; }
+    throw new Error(`[${r.status}] ${msg}`);
+  }
+  if (r.status === 204) return null;
+  const ct = (r.headers.get('content-type') || '').toLowerCase();
+  return ct.includes('application/json') ? r.json() : r.text();
+}
+function fmt(s) { try { return new Date(s).toLocaleString('ru-RU'); } catch { return s; } }
+function esc(s) { return (s ?? '').toString()
+                    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+                    .replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
+
+function renderLogin() {
+  $('#me-pill').innerHTML = '<span class="pill">logged out</span>';
+  $('#auth-state').innerHTML = `
+    <div class="card">
+      <h2>Operator login</h2>
+      <form id="login-form">
+        <label>Email <input type="email" name="email" required></label>
+        <label>Password <input type="password" name="password" required></label>
+        <div class="row" style="margin-top: 14px">
+          <button type="submit">Sign in</button>
+          <div class="warning" id="login-err"></div>
+        </div>
+      </form>
+    </div>`;
+  $('#login-form').onsubmit = async e => {
+    e.preventDefault();
+    try {
+      const fd = new FormData(e.target);
+      await api('/api/admin/login', { method: 'POST', body: JSON.stringify({
+        email: fd.get('email'), password: fd.get('password'),
+      })});
+      location.reload();
+    } catch (err) { $('#login-err').textContent = err.message; }
+  };
+}
+
+function showTab(name) {
+  state.tab = name;
+  $$('.tabs button[data-tab]').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
+  $$('#console > [id^="tab-"]').forEach(d => d.hidden = true);
+  const sel = '#tab-' + name;
+  const el = $(sel);
+  if (el) el.hidden = false;
+  loadTab(name);
+}
+
+async function loadTab(name) {
+  try {
+    if (name === 'users') await loadUsers();
+    else if (name === 'payments') await loadPayments();
+    else if (name === 'proxies') await loadProxies();
+    else if (name === 'stats') await loadStats();
+  } catch (err) {
+    const el = $('#tab-' + name);
+    if (el) el.innerHTML = `<div class="error">${esc(err.message)}</div>`;
+  }
+}
+
+async function loadUsers() {
+  const el = $('#tab-users');
+  el.innerHTML = '<div class="empty">loading…</div>';
+  const users = await api('/api/admin/users');
+  if (!users.length) { el.innerHTML = '<div class="empty">No users yet.</div>'; return; }
+  el.innerHTML = `
+    <table class="table">
+      <tr>
+        <th>id</th><th>email</th><th>status</th><th>trial started</th>
+        <th>paid until</th><th>actions</th>
+      </tr>
+      ${users.map(u => `
+        <tr>
+          <td>${u.id}</td>
+          <td>${esc(u.email)}</td>
+          <td><span class="badge ${esc(u.status)}">${esc(u.status)}</span></td>
+          <td>${fmt(u.trial_started_at)}</td>
+          <td>${u.paid_until ? fmt(u.paid_until) : '—'}</td>
+          <td>${actionsHtml(u)}</td>
+        </tr>
+      `).join('')}
+    </table>
+  `;
+  attachUserActions(users);
+}
+
+function actionsHtml(u) {
+  const isBanned = u.status === 'banned';
+  return `
+    <button class="ghost" data-act="ban" data-id="${u.id}" ${isBanned ? 'disabled' : ''}>ban</button>
+    <button class="ghost" data-act="unban" data-id="${u.id}" ${!isBanned ? 'disabled' : ''}>unban</button>
+    <button class="ghost" data-act="extend" data-id="${u.id}">+7д trial</button>
+    <button class="ghost" data-act="reset" data-id="${u.id}">reset pw</button>
+    <button class="ghost" data-act="simulate" data-id="${u.id}">simulate payment</button>
+  `;
+}
+
+function attachUserActions(users) {
+  $$('#tab-users button[data-act]').forEach(b => {
+    b.onclick = async () => {
+      const id = parseInt(b.dataset.id, 10);
+      const act = b.dataset.act;
+      try {
+        if (act === 'ban') {
+          const reason = prompt('Ban reason?', 'manual') || 'manual';
+          await api(`/api/admin/users/${id}/ban`, { method: 'POST', body: JSON.stringify({ reason }) });
+        } else if (act === 'unban') {
+          await api(`/api/admin/users/${id}/unban`, { method: 'POST' });
+        } else if (act === 'extend') {
+          await api(`/api/admin/users/${id}/extend_trial`, { method: 'POST',
+                     body: JSON.stringify({ days: 7 }) });
+        } else if (act === 'reset') {
+          const r = await api(`/api/admin/users/${id}/reset_password`, { method: 'POST' });
+          alert(`New password for user ${id}: ${r.new_password}\\n\\nPass it to the user securely. It is not stored in plain on disk.`);
+        } else if (act === 'simulate') {
+          await api(`/api/admin/billing/simulate`, { method: 'POST',
+                     body: JSON.stringify({ user_id: id, currency: 'RUB' }) });
+        }
+        loadUsers();
+      } catch (err) { alert(err.message); }
+    };
+  });
+}
+
+async function loadPayments() {
+  const el = $('#tab-payments');
+  el.innerHTML = '<div class="empty">loading…</div>';
+  const items = await api('/api/admin/payments');
+  if (!items.length) { el.innerHTML = '<div class="empty">No payments yet.</div>'; return; }
+  el.innerHTML = `
+    <table class="table">
+      <tr>
+        <th>id</th><th>user</th><th>amount</th><th>currency</th><th>provider</th>
+        <th>tx_id</th><th>status</th><th>paid_at</th><th>valid_until</th>
+      </tr>
+      ${items.map(p => `
+        <tr>
+          <td>${p.id}</td><td>${p.user_id}</td>
+          <td>${p.amount}</td><td>${esc(p.currency)}</td>
+          <td>${esc(p.provider)}</td>
+          <td><code>${esc(p.tx_id)}</code></td>
+          <td>${esc(p.status)}</td>
+          <td>${p.paid_at ? fmt(p.paid_at) : '—'}</td>
+          <td>${p.valid_until ? fmt(p.valid_until) : '—'}</td>
+        </tr>
+      `).join('')}
+    </table>`;
+}
+
+async function loadProxies() {
+  const el = $('#tab-proxies');
+  el.innerHTML = '<div class="empty">loading…</div>';
+  const items = await api('/api/admin/proxies');
+  if (!items.length) { el.innerHTML = '<div class="empty">No proxies yet.</div>'; return; }
+  el.innerHTML = `
+    <table class="table">
+      <tr>
+        <th>uid</th><th>host</th><th>port</th><th>type</th>
+        <th>owner user</th><th>alive</th><th>latency</th><th>last check</th>
+        <th></th>
+      </tr>
+      ${items.map(p => `
+        <tr>
+          <td><code>${esc(p.uid)}</code></td>
+          <td>${esc(p.host)}</td><td>${p.port}</td><td>${esc(p.type)}</td>
+          <td>${p.email ? esc(p.email) : '<span class="empty">unassigned</span>'}</td>
+          <td>${p.is_alive
+                  ? '<span class="badge alive">alive</span>'
+                  : '<span class="badge dead">dead</span>'}</td>
+          <td>${p.latency_ms} ms</td>
+          <td>${p.last_check_at ? fmt(p.last_check_at) : '—'}</td>
+          <td><button class="ghost" data-retest="${esc(p.uid)}">retest</button></td>
+        </tr>
+      `).join('')}
+    </table>`;
+  $$('#tab-proxies button[data-retest]').forEach(b => {
+    b.onclick = async () => {
+      try {
+        const r = await api(`/api/admin/proxies/${b.dataset.retest}/retest`, { method: 'POST' });
+        alert(`Proxy ${r.uid}: ${r.alive ? 'alive' : 'dead'} (${r.latency_ms} ms)`);
+        loadProxies();
+      } catch (err) { alert(err.message); }
+    };
+  });
+}
+
+async function loadStats() {
+  const el = $('#tab-stats');
+  el.innerHTML = '<div class="empty">loading…</div>';
+  const s = await api('/api/admin/stats');
+  el.innerHTML = `
+    <h3>Users by status</h3>
+    <table class="table">
+      ${Object.entries(s.user_counts || {}).map(([k, v]) =>
+        `<tr><td><span class="badge ${k}">${k}</span></td><td>${v}</td></tr>`).join('')}
+    </table>
+    <h3>Proxies</h3>
+    <table class="table">
+      <tr><th>total</th><td>${s.proxies?.total ?? 0}</td></tr>
+      <tr><th>alive</th><td>${s.proxies?.alive ?? 0}</td></tr>
+    </table>
+    <p class="empty">Refresh: ${new Date().toLocaleString('ru-RU')}</p>
+  `;
+}
+
+(async function init() {
+  $$('.tabs button[data-tab]').forEach(b => {
+    b.onclick = () => showTab(b.dataset.tab);
+  });
+  $('#logout-btn').onclick = async () => {
+    await api('/api/admin/logout', { method: 'POST' });
+    location.reload();
+  };
+  try {
+    state.me = await api('/api/admin/me');
+    $('#me-pill').innerHTML = '<span class="pill">operator</span>';
+    $('#auth-state').innerHTML = '';
+    $('#console').hidden = false;
+    showTab('users');
+  } catch (err) {
+    if (err.message.includes('401')) renderLogin();
+    else { $('#auth-state').innerHTML = `<div class="error">${esc(err.message)}</div>`; }
+  }
+})();
+</script>
+</body>
+</html>

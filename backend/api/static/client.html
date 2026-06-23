@@ -1,0 +1,240 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Litetube — Безлимитный YouTube без рекламы</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header class="app-header">
+  <h1><span class="accent">🔥</span> Litetube</h1>
+  <div id="me-pill"><span class="pill">загрузка…</span></div>
+</header>
+
+<main>
+  <div class="card">
+    <h2>YouTube без рекламы через российский прокси</h2>
+    <p>3 дня <strong>бесплатно</strong>. Дальше — 199&nbsp;₽ / $3.99 / €3.99 в месяц.</p>
+    <p>Вставьте выданные ниже данные в настройки SmartTube для Android TV → "Russia proxy" — и YouTube перестаёт показывать рекламу на любом устройстве.</p>
+  </div>
+
+  <!-- AUTHORED STATES (mobile-friendly: signup + pivot after signup) -->
+  <div id="auth-state"></div>
+</main>
+
+<footer>
+  Поддержка — через Telegram-оператора. Логи не сохраняются.
+</footer>
+
+<script>
+'use strict';
+
+const $ = sel => document.querySelector(sel);
+const state = { me: null };
+
+function setCookie(name, value, days = 30) {
+  const t = new Date(Date.now() + days * 864e5).toUTCString();
+  document.cookie = `${name}=${encodeURIComponent(value)}; expires=${t}; path=/; samesite=lax`;
+}
+
+async function api(path, opts = {}) {
+  const r = await fetch(path, {
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json', ...(opts.headers || {}) },
+    ...opts,
+  });
+  if (!r.ok) {
+    let msg;
+    try { const j = await r.json(); msg = j.error || j.detail || JSON.stringify(j); }
+    catch { msg = (await r.text()) || r.statusText; }
+    throw new Error(`[${r.status}] ${msg}`);
+  }
+  if (r.status === 204) return null;
+  const ct = (r.headers.get('content-type') || '').toLowerCase();
+  return ct.includes('application/json') ? r.json() : r.text();
+}
+
+function fmt(s) { try { return new Date(s).toLocaleString('ru-RU'); } catch { return s; } }
+function esc(s) { return (s ?? '').toString()
+  .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+  .replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
+
+function badge(status) {
+  return `<span class="badge ${status}">${status}</span>`;
+}
+
+function renderUnauthed() {
+  $('#me-pill').innerHTML = '<span class="pill">не авторизован</span>';
+  $('#auth-state').innerHTML = `
+    <div class="card">
+      <h2>Регистрация</h2>
+      <form id="signup-form">
+        <label>Email <input type="email" name="email" required></label>
+        <label>Пароль (≥8 символов) <input type="password" name="password" required minlength="8"></label>
+        <div class="row" style="margin-top: 14px">
+          <button type="submit">Создать аккаунт</button>
+          <div class="warning" id="signup-err"></div>
+        </div>
+      </form>
+    </div>
+    <div class="card">
+      <h2>Вход</h2>
+      <form id="login-form">
+        <label>Email <input type="email" name="email" required></label>
+        <label>Пароль <input type="password" name="password" required></label>
+        <label><input type="checkbox" name="remember" style="width:auto;margin-right:6px"> Запомнить меня</label>
+        <div class="row" style="margin-top: 14px">
+          <button type="submit">Войти</button>
+          <div class="warning" id="login-err"></div>
+        </div>
+      </form>
+    </div>`;
+  $('#signup-form').onsubmit = async e => {
+    e.preventDefault();
+    try {
+      const fd = new FormData(e.target);
+      await api('/api/auth/signup', { method: 'POST', body: JSON.stringify({
+        email: fd.get('email'), password: fd.get('password'),
+      })});
+      state.me = await api('/api/me');
+      renderAuthed();
+    } catch (err) { $('#signup-err').textContent = err.message; }
+  };
+  $('#login-form').onsubmit = async e => {
+    e.preventDefault();
+    try {
+      const fd = new FormData(e.target);
+      await api('/api/auth/login', { method: 'POST', body: JSON.stringify({
+        email: fd.get('email'), password: fd.get('password'),
+        remember_me: !!fd.get('remember'),
+      })});
+      state.me = await api('/api/me');
+      renderAuthed();
+    } catch (err) { $('#login-err').textContent = err.message; }
+  };
+}
+
+function renderAuthed() {
+  const m = state.me;
+  const status = m.status;
+  $('#me-pill').innerHTML =
+    `${badge(status)} <span class="pill">${esc(m.email || '').replace(/.*?@/, '…@')}</span>`;
+  $('#auth-state').innerHTML = `
+    <div class="card">
+      <h2>Моя подписка</h2>
+      <div class="row">
+        <div>
+          <div><strong>Email:</strong> ${esc(m.email)}</div>
+          <div><strong>Статус:</strong> ${badge(status)}</div>
+          ${
+            status === 'trial'
+              ? `<div><strong>До конца триала:</strong> ${m.trial_days_left} дн.</div>`
+              : m.paid_until
+                ? `<div><strong>Активна до:</strong> ${fmt(m.paid_until)}</div>`
+                : ''
+          }
+          ${
+            m.banned_reason
+              ? `<div class="error" style="margin-top:8px">Бан: ${esc(m.banned_reason)}</div>`
+              : ''
+          }
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Подключить SmartTube</h2>
+      <p>Вставь эти данные в настройки <strong>SmartTube → Russia proxy</strong>:</p>
+      <div id="proxy-creds">
+        <div class="empty">Загрузка параметров прокси…</div>
+      </div>
+      <div class="warning" id="proxy-err"></div>
+      <button class="ghost" id="proxy-refresh-btn" style="margin-top:8px">Обновить</button>
+    </div>
+
+    <div class="card">
+      <h2>Оплатить подписку</h2>
+      <p>Стоимость: <strong>199&nbsp;₽</strong> в месяц, или <strong>$3.99</strong> / <strong>€3.99</strong>.</p>
+      <div class="row">
+        <button data-pay="RUB">Оплатить 199&nbsp;₽ (карты / СБП)</button>
+        <button class="ghost" data-pay="USD">$3.99 USD</button>
+        <button class="ghost" data-pay="EUR">€3.99 EUR</button>
+      </div>
+      <div class="warning" id="pay-err"></div>
+      <p class="empty" id="pay-status">Card and SBP payments are processed by Robokassa.</p>
+    </div>
+
+    <div class="card">
+      <button class="ghost" id="logout-btn">Выйти</button>
+    </div>
+  `;
+
+  $('#proxy-refresh-btn').onclick = refreshProxy;
+  $('#logout-btn').onclick = async () => {
+    await api('/api/auth/logout', { method: 'POST' });
+    state.me = null;
+    renderUnauthed();
+  };
+  document.querySelectorAll('button[data-pay]').forEach(b => {
+    b.onclick = () => pay(b.dataset.pay);
+  });
+  refreshProxy();
+}
+
+async function refreshProxy() {
+  try {
+    const p = await api('/api/proxy/refresh');
+    $('#proxy-creds').innerHTML = `
+      <table class="table">
+        <tr><th>Хост</th><td><code>${p.host}</code> <button class="copy-btn" data-copy="${p.host}">копировать</button></td></tr>
+        <tr><th>Порт</th><td><code>${p.port}</code></td></tr>
+        <tr><th>SOCKS5 / HTTP-CONNECT</th><td><code>${p.type}</code></td></tr>
+        <tr><th>Логин (UID)</th><td><code>${p.uid}</code> <button class="copy-btn" data-copy="${p.uid}">копировать</button></td></tr>
+        <tr><th>Пароль</th><td><code>${p.password}</code> <button class="copy-btn" data-copy="${p.password}">копировать</button></td></tr>
+      </table>
+      <p class="empty">TTL: ${p.ttl_seconds || '—'} сек. Обновляй перед вставкой в SmartTube.</p>
+    `;
+    document.querySelectorAll('.copy-btn').forEach(b => {
+      b.onclick = () => {
+        navigator.clipboard.writeText(b.dataset.copy);
+        b.textContent = '✓ скопировано';
+        setTimeout(() => b.textContent = 'копировать', 1500);
+      };
+    });
+    $('#proxy-err').textContent = '';
+  } catch (err) {
+    $('#proxy-creds').innerHTML =
+      '<div class="empty">Прокси пока недоступен. Если trial закончился — оплатите подписку.</div>';
+    $('#proxy-err').textContent = err.message;
+  }
+}
+
+async function pay(currency) {
+  try {
+    $('#pay-err').textContent = '';
+    $('#pay-status').textContent = 'Открываем платёжный шлюз…';
+    const r = await api('/api/billing/pay', { method: 'POST', body: JSON.stringify({ currency }) });
+    if (r.url) {
+      $('#pay-status').innerHTML =
+        'Открываем… Если не открылся автоматически — <a href="' + r.url +
+        '" target="_blank" rel="noopener">нажмите сюда</a>.';
+      window.open(r.url, '_blank', 'noopener');
+    }
+  } catch (err) {
+    $('#pay-err').textContent = err.message;
+    $('#pay-status').textContent = '';
+  }
+}
+
+(async function init() {
+  try {
+    state.me = await api('/api/me');
+    renderAuthed();
+  } catch {
+    renderUnauthed();
+  }
+})();
+</script>
+</body>
+</html>

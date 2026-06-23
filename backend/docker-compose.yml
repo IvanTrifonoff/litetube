@@ -1,0 +1,45 @@
+version: "3.9"
+
+# Litetube — promotional HTTPS/SOCKS5 proxies as a service.
+# Two services:
+#   * fastapi: HTTP API + UI  (listens on 127.0.0.1:9090 only)
+#   * 3proxy: per-user SOCKS5/HTTP-CONNECT (binds on 11001/11002, public)
+# Both use host networking so fastapi can send SIGHUP to 3proxy via PID file.
+
+services:
+  fastapi:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    image: litetube-api:latest
+    container_name: litetube-api
+    restart: unless-stopped
+    network_mode: host
+    pid: host
+    env_file:
+      - .env
+    volumes:
+      - /srv/proxy-infra/db:/srv/proxy-infra/db:rw
+      - /srv/proxy-infra/3proxy-data:/var/lib/3proxy:rw
+      - /srv/proxy-infra/logs:/var/log/litetube:rw    command:
+      [
+        "uvicorn", "litetube.main:app",
+        "--host", "127.0.0.1",
+        "--port", "9090",
+        "--workers", "1",
+        "--log-level", "info",
+        "--access-log",
+      ] 
+
+  3proxy:
+    build:
+      context: ./proxy-pool
+      dockerfile: Dockerfile
+    image: litetube-3proxy:latest
+    container_name: litetube-3proxy
+    restart: unless-stopped
+    network_mode: host
+    pid: host
+    volumes:
+      - /srv/proxy-infra/3proxy-data:/var/lib/3proxy:rw
+      - /srv/proxy-infra/3proxy-log:/var/log/3proxy:rw
