@@ -80,4 +80,4 @@ jobs:
             cd /srv/litetube
             git pull origin main
             cd backend
-            ./setup.sh
+            sudo ./setup.sh
