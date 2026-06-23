@@ -7,7 +7,7 @@
 
 FROM alpine:3.19 AS builder
 
-RUN apk add --no-cache gcc musl-dev make linux-headers git
+RUN apk add --no-cache gcc musl-dev make linux-headers git openssl-dev
 RUN git clone --depth 1 https://github.com/3proxy/3proxy.git /src
 WORKDIR /src
 RUN make -f Makefile.Linux
