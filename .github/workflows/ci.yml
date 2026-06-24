@@ -104,10 +104,16 @@ jobs:
               esac
             done
 
-            # nginx front-door (HTTP; HTTPS not required for smoke since LE
-            # certs may not have been issued yet on first deploy).
+            # End-to-end via nginx. The HTTP→HTTPS redirect enforced in
+            # each vhost must be followed; -k accepts snakeoil/LE cert as
+            # smoke can't depend on DNS or perfect cert alignment; and
+            # --connect-to forces every host:port back to loopback so the
+            # test runs even before DNS points at this VPS.
             for h in litetube.trfnv.ru api.litetube.trfnv.ru admin.litetube.trfnv.ru; do
-              code=$(curl -sS -o /dev/null -w "%{http_code}" -m 10 -H "Host: $h" "http://127.0.0.1/health")
+              code=$(curl -sS -k -L -m 15 \
+                --connect-to "$h:80:127.0.0.1" \
+                --connect-to "$h:443:127.0.0.1" \
+                -o /dev/null -w "%{http_code}" "https://$h/health")
               printf "  nginx(%s) /health HTTP %s\n" "$h" "$code"
               [[ "$code" == "200" ]] || { echo "FAIL: $h returned $code"; exit 1; }
             done
