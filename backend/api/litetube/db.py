@@ -125,7 +125,23 @@ CREATE INDEX IF NOT EXISTS device_claims_expires_idx ON device_claims(expires_at
 CREATE INDEX IF NOT EXISTS device_claims_user_idx    ON device_claims(user_id);
 """
 
-ALL_MIGRATIONS = [SCHEMA_V1, SCHEMA_V2, SCHEMA_V3]  # Append-only — never modify past versions.
+# Litube V4 — Google Sign-In support (Этап 1, behind GOOGLE_AUTH_ENABLED flag).
+# Nullable column + partial unique index gives us:
+#   * existing email/password users continue working untouched (google_sub=NULL)
+#   * first-Google-login linkages are atomic (UNIQUE check catches conflicts)
+#   * no shadow-table rebuild in this micro-migration; the heavier
+#     password_hash→nullable rebuild is deferred to a later stage.
+# The ALTER TABLE ADD COLUMN is not idempotent at the SQL level, but the
+# migration runner is gated by schema_version.version, so it runs exactly
+# once per fresh DB. `WHERE google_sub IS NOT NULL` makes the index partial
+# so legacy rows with NULL don't all collide on the index.
+SCHEMA_V4 = """
+ALTER TABLE users ADD COLUMN google_sub TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_google_sub
+    ON users(google_sub) WHERE google_sub IS NOT NULL;
+"""
+
+ALL_MIGRATIONS = [SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4]  # Append-only — never modify past versions.
 
 
 # Tunables

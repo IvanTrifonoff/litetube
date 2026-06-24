@@ -18,6 +18,18 @@ os.environ["DEVICE_POLL_MAX_SEC"] = "5"
 os.environ["DEVICE_POLL_TICK_MS"] = "100"
 os.environ["DEVICE_START_PER_IP_PER_MIN"] = "100"
 os.environ["PROXY_HOST"] = "82.202.141.81"
+# Default: Google Sign-In is feature-flagged off. Tests that exercise the
+# endpoint use the `google_enabled` fixture to flip this + monkeypatch the
+# token verifier (see tests/test_google_auth.py).
+os.environ.setdefault("GOOGLE_AUTH_ENABLED", "0")
+os.environ.setdefault("GOOGLE_CLIENT_ID", "")
+# Belt-and-suspenders: if a developer sets GOOGLE_AUTH_ENABLED=1 from their
+# shell and runs `pytest` without GOOGLE_CLIENT_ID, litetube.auth's import-
+# time fail-fast would crash the whole suite before any test ran. Stamp a
+# placeholder so import succeeds; the `google_enabled` fixture overwrites it
+# with a real value for tests that need it.
+if os.environ["GOOGLE_AUTH_ENABLED"] == "1" and not os.environ.get("GOOGLE_CLIENT_ID"):
+    os.environ["GOOGLE_CLIENT_ID"] = "conftest-placeholder.apps.googleusercontent.com"
 
 # Ensure the backend is importable
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "api"))

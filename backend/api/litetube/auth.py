@@ -14,6 +14,7 @@ import json
 import logging
 import os
 import secrets
+import sqlite3
 import time
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -36,6 +37,23 @@ if not JWT_SECRET or len(JWT_SECRET) < 32:
     raise RuntimeError(
         "Litube: JWT_SECRET env must be set to a string of >=32 chars. "
         "Generate via `openssl rand -hex 32` and put it in /srv/proxy-infra/.env.")
+
+# Google Sign-In (Этап 1, hard-gated by env flag). Read at call time so a
+# dev flipping GOOGLE_AUTH_ENABLED doesn't require a Python-level reset.
+# When GOOGLE_AUTH_ENABLED=0 the endpoint returns 404 before any of these
+# helpers run, so the underlying google-auth library is never required.
+def is_google_auth_enabled() -> bool:
+    return os.environ.get("GOOGLE_AUTH_ENABLED", "0") == "1"
+
+def google_client_id() -> str:
+    return os.environ.get("GOOGLE_CLIENT_ID", "") or ""
+
+# Fail-fast at import: enabled flag without a client id is a footgun.
+if is_google_auth_enabled() and not google_client_id():
+    raise RuntimeError(
+        "Litube: GOOGLE_AUTH_ENABLED=1 requires GOOGLE_CLIENT_ID env. "
+        "Either set the OAuth 2.0 Web Client ID from console.cloud.google.com, "
+        "or set GOOGLE_AUTH_ENABLED=0 (default).")
 
 # Same-process rate-limit + failed-auth tracking. Per-IP, in-memory.
 _rate: dict[str, list[float]] = {}
@@ -232,6 +250,209 @@ async def login_admin(email: str, password: str):
     if not row or not verify_password(password, row["password_hash"]):
         raise HTTPException(401, "invalid_credentials")
     return {"token": _issue_token(row["id"], "operator", 8)}
+
+
+# ---- Google Sign-In (Этап 1, hard-gated by GOOGLE_AUTH_ENABLED) ---------
+#
+# Hard contract:
+#   * No existing route (/api/auth/signup, /api/auth/login, /api/admin/login)
+#     is touched — email/password continues to work unchanged.
+#   * /api/auth/google returns 404 when GOOGLE_AUTH_ENABLED=0. The helpers
+#     below are called only when the flag is on.
+#   * `_google_token_verifier` is the SINGLE network/seam point. Tests
+#     monkeypatch `litetube.auth._google_token_verifier` (NOT this wrapper)
+#     to drive success/failure paths without network.
+_GOOGLE_PLACEHOLDER_PASSWORD = "!google"
+# Public: main.py's /api/auth/google endpoint reads this to set cookie TTL,
+# so JWT-cookie expiry and JWT-token expiry stay in sync.
+GOOGLE_JWT_HOURS = 24 * 30
+_GOOGLE_ID_TOKEN_MAX_LEN = 4096  # real Google tokens are <2 KB; cap is DoS defence.
+
+
+def _default_google_token_verifier(id_token_str: str, audience: str) -> dict:
+    """Lazy-import google-auth and run `verify_oauth2_token`. This is the
+    default value of the module-level `_google_token_verifier`. Tests
+    substitute it via monkeypatch to bypass the network."""
+    from google.oauth2 import id_token
+    from google.auth.transport import requests
+    return id_token.verify_oauth2_token(
+        id_token_str, requests.Request(), audience=audience)
+
+
+# Module-level seam for tests (and for ops to swap to a dry-run verifier
+# during incident response — eg. if Google's cert store is misbehaving
+# the verifier can be monkey-patched at process start).
+_google_token_verifier = _default_google_token_verifier
+
+
+def verify_oauth2_token(id_token_str: str, audience: str) -> dict:
+    """Verify a Google ID token and return sanitized claims.
+
+    Returns: {"sub": str, "email": str, "claims": <raw dict>}
+
+    Failure-classification rules (don't lump them together):
+      * wrong audience / expired / malformed / signature mismatch
+        → ValueError → 401 invalid_google_token
+      * google.auth.exceptions.GoogleAuthError → also 401 invalid_google_token
+        (lazy-imported; won't crash auth.py if google-auth is missing).
+      * NOT GoogleAuthError, NOT ValueError — i.e. ConnectionError,
+        DNS failure, timeouts, requests.RequestException — anything from
+        Google infra being unhealthy → 503 google_unreachable (operator
+        reads this as "Google is down", user gets a meaningful error).
+      * email_verified missing/false                                       → 403 unverified_email
+      * sub or email claim missing                                         → 403 google_claims_incomplete
+    """
+    if not id_token_str:
+        raise HTTPException(400, "id_token_required")
+    if len(id_token_str) > _GOOGLE_ID_TOKEN_MAX_LEN:
+        # Standard Google ID tokens are <2 KB; anything beyond 4 KB is
+        # almost certainly a DoS attempt or a misconfigured client.
+        raise HTTPException(400, "id_token_too_large")
+    try:
+        claims = _google_token_verifier(id_token_str, audience)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        # Lazy-imported so this file still loads when google-auth is absent.
+        try:
+            from google.auth.exceptions import GoogleAuthError
+            if isinstance(exc, GoogleAuthError):
+                logger.warning(
+                    "google token verify failed: GoogleAuthError(%s)", type(exc).__name__)
+                raise HTTPException(401, "invalid_google_token") from exc
+        except ImportError:
+            pass
+        if isinstance(exc, ValueError):
+            logger.warning("google token verify failed: ValueError")
+            raise HTTPException(401, "invalid_google_token") from exc
+        # Network / DNS / timeout / unexpected library bugs all land here.
+        logger.error(
+            "google auth infrastructure error: %s", type(exc).__name__)
+        raise HTTPException(503, "google_unreachable") from exc
+    if claims.get("email_verified") is not True:
+        raise HTTPException(403, "unverified_email")
+    sub = claims.get("sub")
+    email = (claims.get("email") or "").strip().lower()
+    if not sub or not email:
+        raise HTTPException(403, "google_claims_incomplete")
+    return {"sub": sub, "email": email, "claims": claims}
+
+
+async def google_login(id_token_str: str) -> dict:
+    """Verify a Google ID token and run the lookup/link/create flow.
+
+    Lookup priority:
+      1. By `google_sub` — if a user row carries this sub, log in.
+         The row's stored email is intentionally NOT overwritten: Google's
+         email claim can rotate (Workspace rename), but `sub` is immutable.
+      2. By `email` — link Google identity onto an existing client row:
+         * role='operator' → reject (no admin SSO via third party).
+         * google_sub already set to a different sub → reject (someone is
+           claiming an email that's already anchored to a different Google
+           account).
+         * else → set google_sub, log in. Idempotent on retry: if rc=0
+           because another concurrent request linked the SAME sub, treat
+           as success rather than `link_race_lost`.
+      3. None of the above → create a brand-new client (trial) row with
+         google_sub, password_hash=_GOOGLE_PLACEHOLDER_PASSWORD, allocate
+         a 3proxy slot.
+
+    Returns {"token": jwt, "user_id": int, "linked": bool, "created": bool}.
+    """
+    info = verify_oauth2_token(id_token_str, google_client_id())
+    sub = info["sub"]
+    email = info["email"]
+    now = await db.now()
+
+    # 1. Lookup by google_sub (the canonical, immutable identity).
+    row = await db.conn().fetch_one(
+        "SELECT id, role, email FROM users WHERE google_sub=?", (sub,))
+    if row is not None:
+        return {
+            "token": _issue_token(row["id"], "client", GOOGLE_JWT_HOURS),
+            "user_id": row["id"],
+            "linked": False,
+            "created": False,
+        }
+
+    # 2. Lookup by email — link onto existing client, reject the rest.
+    row = await db.conn().fetch_one(
+        "SELECT id, role, google_sub FROM users WHERE email=?", (email,))
+    if row is not None:
+        if row["role"] == "operator":
+            # Case A from security review: never promote an operator via OAuth.
+            raise HTTPException(403, "admin_sso_disabled")
+        if row["google_sub"] is not None and row["google_sub"] != sub:
+            # Case B: somebody recycled a Google account to land on an
+            # email already linked to a different Google account. Refuse
+            # rather than overwrite the anchor.
+            raise HTTPException(409, "google_sub_mismatch")
+        # Link google_sub onto the existing client. The
+        #   `WHERE id=? AND google_sub IS NULL`
+        # guard makes the UPDATE lose to a concurrent /api/auth/google
+        # call that just wrote a (different) sub — only the first writer
+        # produces rowcount=1.
+        rc = await db.conn().execute(
+            "UPDATE users SET google_sub=?, updated_at=? "
+            "WHERE id=? AND google_sub IS NULL",
+            (sub, now, row["id"]))
+        if rc == 0:
+            # Distinguish two scenarios that both produce rc=0:
+            #   (a) Concurrent request linked OUR SAME sub — idempotent
+            #       retry; user-action-wise nothing went wrong, just
+            #       confirm and log in.
+            #   (b) Concurrent request linked a DIFFERENT sub — real
+            #       race; surface as 409 so the client can retry.
+            verify_row = await db.conn().fetch_one(
+                "SELECT id FROM users WHERE google_sub=?", (sub,))
+            if verify_row is not None and verify_row["id"] == row["id"]:
+                # (a) — idempotent retry, fall through to log in.
+                return {
+                    "token": _issue_token(row["id"], "client", GOOGLE_JWT_HOURS),
+                    "user_id": row["id"],
+                    "linked": True,
+                    "created": False,
+                }
+            # (b) — surface the race for the user to retry.
+            raise HTTPException(409, "google_sub_mismatch")
+        return {
+            "token": _issue_token(row["id"], "client", GOOGLE_JWT_HOURS),
+            "user_id": row["id"],
+            "linked": True,
+            "created": False,
+        }
+
+    # 3. Fresh signup.
+    try:
+        await db.conn().execute(
+            "INSERT INTO users(email, password_hash, role, status, "
+            "  trial_started_at, google_sub, created_at, updated_at) "
+            "VALUES (?,?,?,?,?,?,?,?)",
+            (email.lower(), _GOOGLE_PLACEHOLDER_PASSWORD, "client", "trial",
+             now, sub, now, now))
+    except sqlite3.IntegrityError as exc:
+        # Narrow catch: only UNIQUE/PK conflicts map to 409. Other exceptions
+        # (locked DB, schema mismatch, programmer errors) bubble up as 500
+        # so the operator noticed rather than blaming the user with a
+        # misleading "email_conflict".
+        logger.warning("google_login: email already taken for %s", email)
+        raise HTTPException(409, "email_conflict") from exc
+    new_row = await db.conn().fetch_one(
+        "SELECT id FROM users WHERE email=?", (email,))
+    user_id = new_row["id"]
+    # Allocate a 3proxy slot, but never block sign-in on pool flakiness
+    # — the existing email/password signup does the same best-effort thing.
+    try:
+        from . import proxy_3proxy
+        await proxy_3proxy.allocate_proxy_for_user(user_id)
+    except Exception:
+        logger.exception("google_login: proxy allocation failed for user %d", user_id)
+    return {
+        "token": _issue_token(user_id, "client", GOOGLE_JWT_HOURS),
+        "user_id": user_id,
+        "linked": False,
+        "created": True,
+    }
 
 
 async def reset_user_password(user_id: int) -> str:

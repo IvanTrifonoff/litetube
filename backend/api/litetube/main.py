@@ -208,6 +208,60 @@ async def api_logout():
     return r
 
 
+@app.post("/api/auth/google")
+async def api_google_login(request: Request):
+    """Google Sign-In for clients (Этап 1, feature-flagged).
+
+    Behaviour:
+      * GOOGLE_AUTH_ENABLED=0 (default) → endpoint is invisible: 404. No
+        network, no schema lookup, no client id required.
+      * GOOGLE_AUTH_ENABLED=1          → verifies the Google ID token,
+        runs the lookup/link/create flow defined in `auth.google_login`,
+        and sets the same `litetube_client` cookie as /api/auth/login.
+        Cookie lifetime is 30 days (OAuth users generally expect persistent
+        sessions across device restarts).
+
+    No field other than `id_token` is trusted from the client — the entire
+    identity decision is driven by Google's signed claims.
+
+    TODO(Этап 3 / 4): When flipping GOOGLE_AUTH_ENABLED=1 in production,
+    also add `client_max_body_size 32k;` to the litetube.trfnv.ru nginx
+    vhost (or set Starlette `body_size_limit` in main.py) — Starlette has
+    no default body cap, so a multi-MB POST hits `request.json()` without
+    limit. Rate-limit middleware already protects against floods; the body
+    cap is defence-in-depth against memory-pressure DoS.
+    """
+    if not auth.is_google_auth_enabled():
+        raise HTTPException(404, "not_found")
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(400, "bad_json")
+    # Type-coerce: a client posting `{"id_token": 12345}` (a JSON number)
+    # would otherwise crash `.strip()` with AttributeError → 500. Coerce
+    # non-strings to "" so the empty/oversize cases land clean at 400.
+    raw = body.get("id_token", "")
+    if not isinstance(raw, str):
+        raw = ""
+    id_token_str = raw.strip()
+    # Length cap is enforced inside auth.verify_oauth2_token; the endpoint
+    # stays focused on routing/cookie concerns. Both 400-from-empty and
+    # 400-from-oversize are surfaced with the same JSON contract so the
+    # frontend can show a single "token invalid" state.
+    out = await auth.google_login(id_token_str)
+    response = JSONResponse({
+        "ok": True,
+        "user_id": out["user_id"],
+        "linked": out.get("linked", False),
+        "created": out.get("created", False),
+    })
+    # Cookie TTL is the same as the JWT itself, taken from the canonical
+    # constant in auth.py so future tuning happens in one place.
+    _set_cookie(
+        response, auth.COOKIE_CLIENT, out["token"], hours=auth.GOOGLE_JWT_HOURS)
+    return response
+
+
 @app.get("/api/me")
 async def api_me(creds=Depends(auth.client_required)):
     info = await auth.get_me(creds)
