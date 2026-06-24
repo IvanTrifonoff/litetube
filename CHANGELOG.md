@@ -6,6 +6,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-06-24
+
 ### Added
 - Backend: Google Sign-In for clients (Этап 1), feature-flagged via `GOOGLE_AUTH_ENABLED=0` (default off; flip to `1` to activate). Endpoint `POST /api/auth/google` accepts a Google ID token (`{"id_token": …}`), verifies it via the `google-auth` library, and runs the lookup/link/create flow:
   - login by `google_sub` (canonical immutable id) — preserves the row's stored email even if Google rotates it (Workspace rename case);
