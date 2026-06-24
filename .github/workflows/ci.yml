@@ -93,13 +93,13 @@ jobs:
             echo "== smoke tests =="
 
             # End-to-end via nginx (also exercises the API: nginx proxies
-            # /health to FastAPI). -k accepts snakeoil/LE cert; --retry*
-            # handles the brief window after `docker compose up -d` where
-            # the container is starting; --connect-to forces every
-            # host:port back to loopback so the test runs even before DNS
-            # points at this VPS.
+            # /health to FastAPI). LE certs are issued for the 3 domains and
+            # curl validates against the URL host (no -k). --retry* handles
+            # the brief window after `docker compose up -d` where the new
+            # FastAPI container is starting; --connect-to still forces
+            # loopback as a safety net in case DNS hasn't propagated.
             for h in litetube.trfnv.ru api.litetube.trfnv.ru admin.litetube.trfnv.ru; do
-              code=$(curl -sS -k -L -m 15 \
+              code=$(curl -sS -L -m 15 \
                 --retry 5 --retry-connrefused --retry-delay 2 \
                 --connect-to "$h:80:127.0.0.1" \
                 --connect-to "$h:443:127.0.0.1" \
