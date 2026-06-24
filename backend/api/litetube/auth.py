@@ -272,11 +272,26 @@ _GOOGLE_ID_TOKEN_MAX_LEN = 4096  # real Google tokens are <2 KB; cap is DoS defe
 def _default_google_token_verifier(id_token_str: str, audience: str) -> dict:
     """Lazy-import google-auth and run `verify_oauth2_token`. This is the
     default value of the module-level `_google_token_verifier`. Tests
-    substitute it via monkeypatch to bypass the network."""
+    substitute it via monkeypatch to bypass the network.
+
+    When GOOGLE_PROXY env is set (e.g. socks5h://127.0.0.1:1080), outgoing
+    HTTPS to googleapis.com is routed through that proxy. Required on
+    servers that cannot reach Google directly (Russia, China, etc.).
+    `requests` and `PySocks` must both be installed in the environment."""
     from google.oauth2 import id_token
-    from google.auth.transport import requests
+    from google.auth.transport import requests as google_requests
+
+    proxy_url = os.environ.get("GOOGLE_PROXY", "") or os.environ.get("HTTPS_PROXY", "")
+    if proxy_url:
+        import requests as http_requests
+        session = http_requests.Session()
+        session.proxies = {"https": proxy_url, "http": proxy_url}
+        transport = google_requests.Request(session=session)
+    else:
+        transport = google_requests.Request()
+
     return id_token.verify_oauth2_token(
-        id_token_str, requests.Request(), audience=audience)
+        id_token_str, transport, audience=audience)
 
 
 # Module-level seam for tests (and for ops to swap to a dry-run verifier
