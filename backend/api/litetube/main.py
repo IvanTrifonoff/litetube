@@ -5,6 +5,7 @@ health-checker coroutine and the 3proxy cfg-reload worker.
 from __future__ import annotations
 
 import asyncio
+import html
 import logging
 import os
 import random
@@ -63,21 +64,94 @@ HERE = Path(__file__).parent
 app.mount("/static", StaticFiles(directory=str(HERE / "static")), name="static")
 
 
-# Cache rendered HTML per (filename, version). Only invalidated when the
-# service restarts (after a version bump), so callers pay file-IO + str.replace
-# exactly once per file per process.
-_RENDER_CACHE: dict[tuple[str, str], str] = {}
+# Cache rendered HTML per (filename, version, google-flag-state). Invalidation
+# happens on process restart plus on any feature-flag flip or client id change
+# — Google Sign-In rendering is gated by `is_google_auth_enabled()` and the
+# actual `GOOGLE_CLIENT_ID` value, so the cache MUST depend on both or a flip
+# would serve stale HTML. Upper bound ~files × versions × flag_vals × client_id_vals
+# (≈ 20 entries across process lifetime; flip events are rare; LRU unwarranted).
+_RENDER_CACHE: dict[tuple, str] = {}
+
+
+def _google_signin_block() -> str:
+    """Return the HTML+JS block for the Google Identity Services button,
+    conditionally populated when the feature flag is on AND a client id is
+    configured. Empty string otherwise so the placeholder substitution in
+    `_render()` leaves a clean gap (no leftover `{{GOOGLE_SIGNIN_BLOCK}}`
+    text leaks into served HTML).
+    """
+    if not auth.is_google_auth_enabled():
+        return ""
+    cid = auth.google_client_id()
+    if not cid:
+        return ""
+    # Defense-in-depth: cid is operator-controlled (env) but if it contains
+    # a quote or angle-bracket the rendered data-client_id attribute could
+    # break (and become an HTML-injection vector when combined with future
+    # template logic). html.escape with quote=True is safe.
+    cid_h = html.escape(cid, quote=True)
+    # The script tag MUST be present: Google's GIS library only loads when
+    # this script executes. Without it, the g_id_signin div renders empty
+    # and no popup ever appears.
+    #
+    # Onerror fallback for Russia reachability: if the GIS CDN is blocked
+    # the user sees a friendly "temporarily unavailable" message instead
+    # of a silent broken button. Triggers unconditionally on script load
+    # failure (network error, DNS block, 5xx).
+    return (
+        '<div class="oauth-divider mt16"><span>или войдите через Google</span></div>\n'
+        '<div class="google-signin-block">\n'
+        '  <div id="g_id_onload" data-client_id="' + cid_h + '"\n'
+        '       data-callback="handleGoogleCredential" data-auto_prompt="false"></div>\n'
+        '  <div class="g_id_signin" data-type="standard" data-size="large"\n'
+        '       data-text="signin_with" data-shape="rectangular" data-theme="dark"\n'
+        '       data-logo_alignment="left"></div>\n'
+        '</div>\n'
+        '<script src="https://accounts.google.com/gsi/client" async defer\n'
+        '        onerror="var e=document.getElementById(\'google-signin-fallback\');if(e)e.style.display=\'block\'"></script>\n'
+        '<div id="google-signin-fallback" style="display:none;text-align:center;font-size:12px;color:var(--text-muted);margin-top:8px;padding:6px 10px;border:1px solid var(--input-border);border-radius:8px">Google Sign-In временно недоступен — используйте email и пароль</div>\n'
+        '<script>\n'
+        'function handleGoogleCredential(response){\n'
+        '  fetch("/api/auth/google",{method:"POST",headers:{"content-type":"application/json"},\n'
+        '    body:JSON.stringify({id_token:response.credential}),credentials:"same-origin"})\n'
+        '  .then(function(r){\n'
+        '    if(!r.ok){r.json().catch(function(){return null;}).then(function(j){\n'
+        '      alert("Google sign-in failed: "+(j&&j.detail?j.detail:r.status));\n'
+        '    });return;}\n'
+        '    var c=new URLSearchParams(location.search).get("code");\n'
+        '    if(c){\n'
+        '      fetch("/api/devices/claim/complete",{method:"POST",\n'
+        '        headers:{"content-type":"application/json"},body:JSON.stringify({code:c}),\n'
+        '        credentials:"same-origin"}).then(function(){\n'
+        '        window.location.href="/?google_oauth=1&claimed="+encodeURIComponent(c);\n'
+        '      }).catch(function(){window.location.href="/?google_oauth=1&claimed_unack="+encodeURIComponent(c);});\n'
+        '      return;\n'
+        '    }\n'
+        '    window.location.href="/?google_oauth=1";\n'
+        '  }).catch(function(e){alert("Network error during Google sign-in: "+e);});\n'
+        '}\n'
+        '</script>'
+    )
 
 
 def _render(name: str) -> str:
-    """Read a static HTML file and substitute `{{VERSION}}` so the footer
-    shows the current build. Cache key is filename + version, so the result
-    is rebuilt whenever __version__ changes (which means process restart).
+    """Read a static HTML file and substitute `{{VERSION}}` plus the
+    conditionally-rendered `{{GOOGLE_SIGNIN_BLOCK}}` placeholder. Cache
+    key includes feature-flag state so a `GOOGLE_AUTH_ENABLED` flip is
+    picked up on the next request without a process restart.
     """
-    key = (name, __version__)
-    if key not in _RENDER_CACHE:
-        _RENDER_CACHE[key] = (HERE / "static" / name).read_text(encoding="utf-8").replace("{{VERSION}}", __version__)
-    return _RENDER_CACHE[key] 
+    cache_key = (
+        name,
+        __version__,
+        auth.is_google_auth_enabled(),
+        auth.google_client_id(),
+    )
+    if cache_key not in _RENDER_CACHE:
+        text = (HERE / "static" / name).read_text(encoding="utf-8")
+        text = text.replace("{{VERSION}}", __version__)
+        text = text.replace("{{GOOGLE_SIGNIN_BLOCK}}", _google_signin_block())
+        _RENDER_CACHE[cache_key] = text
+    return _RENDER_CACHE[cache_key] 
 
 
 # ----------------------------------------------------------------------
