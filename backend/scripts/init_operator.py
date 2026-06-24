@@ -11,6 +11,12 @@ Usage:
 
 Prints OPERATOR_PASSWORD=... exactly once. Operator is expected to save
 it in their password manager immediately.
+
+Note on SCHEMA_V5: users.password_hash became nullable in V5 (for
+Google-only clients). The operator row always carries a bcrypt hash here
+(init/rotate writes one unconditionally), so this script remains
+schema-safe — no NOT NULL violation possible, and downgrade_to_v5_to_v4
+(also in db.py) doesn't block on operator rows.
 """
 from __future__ import annotations
 

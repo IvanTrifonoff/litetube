@@ -141,7 +141,90 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_users_google_sub
     ON users(google_sub) WHERE google_sub IS NOT NULL;
 """
 
-ALL_MIGRATIONS = [SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4]  # Append-only — never modify past versions.
+# Litube V5 — Drop NOT NULL on users.password_hash (Этап 2).
+# Drops the constraint via SQLite's shadow-table rebuild pattern: SQLite
+# has no ALTER TABLE DROP NOT NULL, so we build a parallel `users_new`,
+# copy each row by explicit column list, swap names, and re-create the
+# V4 partial unique index (the DROP TABLE nukes it). PRAGMA foreign_keys
+# is OFF'd around the rebuild so child rows (`proxies`, `bans`, `payments`,
+# `device_claims`) referencing `users(id)` aren't cascaded by the DROP.
+#
+# Atomicity caveat: this runs via `sconn.executescript(...)` which auto-
+# commits between statement groups, so a mid-script crash could leave the
+# DB in `users_new` state. schema_version is stamped AFTER the script
+# succeeds, so re-running init() is safe. Worst-case recovery is the
+# explicit `downgrade_to_v4()` function below + a manual cutover.
+#
+# Statement ordering rationale:
+#   1. PRAGMA foreign_keys=OFF first (defensive — child rows referencing
+#      users shouldn't be required for V1-V4 layout, but FK pragma can
+#      flip between processes).
+#   2. CREATE TABLE users_new with the new shape (password_hash TEXT,
+#      no NOT NULL).
+#   3. INSERT INTO users_new SELECT (explicit columns so a future
+#      migration adding/removing columns doesn't silently break layout).
+#   4. DROP TABLE users (also drops idx_users_google_sub from V4).
+#   5. ALTER TABLE users_new RENAME TO users (re-attaches the canonical
+#      name; child FK re-resolve to the new table).
+#   6. CREATE UNIQUE INDEX IF NOT EXISTS — idempotent, recreates the V4
+#      partial index on the freshly-renamed table.
+#   7. PRAGMA foreign_keys=ON resumes enforcement for callers.
+SCHEMA_V5 = """
+-- Re-runnable against a half-applied previous attempt: a "ghost" users_new
+-- from an earlier crash is purged here so we can CREATE users_new without
+-- collision. This handles the EARLY-window failure mode (crash before
+-- DROP TABLE users).
+--
+-- LATE-window failure mode (crash AFTER DROP TABLE users but BEFORE
+-- ALTER TABLE users_new RENAME TO users) is NOT auto-recoverable from
+-- SQL alone: the source-of-truth `users` is gone and `users_new` is
+-- partial. The mitigation is operator-driven: after a V5 crash, run
+--   sqlite3 /srv/proxy-infra/db/litetube.db
+--   .schema users_new   # inspect partial contents
+-- then either
+--   a) re-populate users_new from a backup + ALTER TABLE users_new
+--      RENAME TO users, or
+--   b) downgrade_to_v5_to_v4(...) (if partial copy completed) + git revert.
+-- Documented in HOMELAB_DEPENDENCIES.md / HOMELAB_FIX_PLAN.md as part
+-- of incident response. Do NOT add silent recovery loops that could
+-- mask data drift.
+DROP TABLE IF EXISTS users_new;
+
+PRAGMA foreign_keys=OFF;
+
+CREATE TABLE users_new (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    email            TEXT UNIQUE NOT NULL,
+    password_hash    TEXT,
+    role             TEXT NOT NULL DEFAULT 'client',
+    status           TEXT NOT NULL DEFAULT 'trial',
+    trial_started_at TEXT NOT NULL,
+    paid_until       TEXT,
+    banned_reason    TEXT,
+    created_at       TEXT NOT NULL,
+    updated_at       TEXT NOT NULL,
+    google_sub       TEXT
+);
+
+INSERT INTO users_new (
+    id, email, password_hash, role, status, trial_started_at,
+    paid_until, banned_reason, created_at, updated_at, google_sub
+)
+SELECT
+    id, email, password_hash, role, status, trial_started_at,
+    paid_until, banned_reason, created_at, updated_at, google_sub
+FROM users;
+
+DROP TABLE users;
+ALTER TABLE users_new RENAME TO users;
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_google_sub
+    ON users(google_sub) WHERE google_sub IS NOT NULL;
+
+PRAGMA foreign_keys=ON;
+"""
+
+ALL_MIGRATIONS = [SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5]  # Append-only — never modify past versions.
 
 
 # Tunables
@@ -271,3 +354,80 @@ def conn() -> AsyncConn:
 
 async def now() -> str:
     return _now()
+
+
+# ---- manual rollback (V5 → V4) ----------------------------------------
+# Not part of the normal migration runner. Call explicitly from a shell if
+# a bad V5 deployment needs to be undone mid-incident.
+#
+#   python3 -c "import sys; sys.path.insert(0, '/srv/proxy-infra/backend/api'); \
+#               from litetube import db; db.downgrade_to_v5_to_v4('/srv/proxy-infra/db/litetube.db')"
+#
+# Refuses to run if any user has a NULL password_hash (which would mean
+# Google-only users — rebuilding with NOT NULL loses their login path).
+# Operator rows are unaffected: init_operator.py writes a bcrypt hash on
+# every insert/update, so they always pass the constraint.
+def downgrade_to_v5_to_v4(path: str) -> None:
+    """Emergency V5 → V4 downgrade: restores NOT NULL on users.password_hash.
+
+    Refuses to run if any current user has password_hash IS NULL
+    (Google-only users created via /api/auth/google). Backfill those
+    rows with bcrypt-hashed placeholder passwords before downgrading.
+    """
+    sconn = sqlite3.connect(path, timeout=10.0)
+    try:
+        current = sconn.execute(
+            "SELECT MAX(version) FROM schema_version").fetchone()
+        cur_v = current[0] if current and current[0] else 0
+        if cur_v != 5:
+            raise RuntimeError(
+                f"downgrade_to_v5_to_v4: expected schema at v5, found v{cur_v}; "
+                "nothing to do.")
+        null_count = sconn.execute(
+            "SELECT COUNT(*) FROM users WHERE password_hash IS NULL").fetchone()[0]
+        if null_count > 0:
+            raise ValueError(
+                f"downgrade_to_v5_to_v4: refused — {null_count} rows have "
+                "NULL password_hash (Google-only users). Backfill or delete "
+                "those rows before downgrading. Operator accounts "
+                "(`role='operator'`) are not affected.")
+        # Cleanup any ghost users_old from a half-applied previous run.
+        sconn.executescript("""
+            DROP TABLE IF EXISTS users_old;
+            PRAGMA foreign_keys=OFF;
+            CREATE TABLE users_old (
+                id               INTEGER PRIMARY KEY AUTOINCREMENT,
+                email            TEXT UNIQUE NOT NULL,
+                password_hash    TEXT NOT NULL,
+                role             TEXT NOT NULL DEFAULT 'client',
+                status           TEXT NOT NULL DEFAULT 'trial',
+                trial_started_at TEXT NOT NULL,
+                paid_until       TEXT,
+                banned_reason    TEXT,
+                created_at       TEXT NOT NULL,
+                updated_at       TEXT NOT NULL,
+                google_sub       TEXT
+            );
+            INSERT INTO users_old (
+                id, email, password_hash, role, status, trial_started_at,
+                paid_until, banned_reason, created_at, updated_at, google_sub
+            )
+            SELECT
+                id, email, password_hash, role, status, trial_started_at,
+                paid_until, banned_reason, created_at, updated_at, google_sub
+            FROM users;
+            DROP TABLE users;
+            ALTER TABLE users_old RENAME TO users;
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_users_google_sub
+                ON users(google_sub) WHERE google_sub IS NOT NULL;
+            DELETE FROM schema_version WHERE version=5;
+            PRAGMA foreign_keys=ON;
+        """)
+        sconn.commit()
+        logger.warning(
+            "downgrade_to_v5_to_v4: rolled back to v4 — Google-only users "
+            "(if any were NULL before this call) are preserved; verify "
+            "current password_hash column is NOT NULL via "
+            "`PRAGMA table_info(users)`.")
+    finally:
+        sconn.close()
