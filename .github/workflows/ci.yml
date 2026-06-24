@@ -92,10 +92,11 @@ jobs:
             set -eu
             echo "== smoke tests =="
 
-            # Direct FastAPI (port 8080 from docker compose).
-            # Landing page, health JSON, device activation page.
+            # Direct FastAPI. Note: the API listens on 127.0.0.1:9090 inside
+            # its container; port 8080 on this VPS is occupied by synapse-admin,
+            # so don't use 8080 for app smoke-tests.
             for path in / /health /activate; do
-              code=$(curl -sS -o /dev/null -w "%{http_code}" -m 10 "http://127.0.0.1:8080$path")
+              code=$(curl -sS -o /dev/null -w "%{http_code}" -m 10 "http://127.0.0.1:9090$path")
               printf "  FastAPI  %-12s HTTP %s\n" "$path" "$code"
               case "$code" in
                 2*|3*) ;;
