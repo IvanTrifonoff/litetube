@@ -81,3 +81,34 @@ jobs:
             git pull origin main
             cd backend
             sudo ./setup.sh
+
+      - name: Smoke-test endpoints
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            set -eu
+            echo "== smoke tests =="
+
+            # Direct FastAPI (port 8080 from docker compose).
+            # Landing page, health JSON, device activation page.
+            for path in / /health /activate; do
+              code=$(curl -sS -o /dev/null -w "%{http_code}" -m 10 "http://127.0.0.1:8080$path")
+              printf "  FastAPI  %-12s HTTP %s\n" "$path" "$code"
+              case "$code" in
+                2*|3*) ;;
+                *) echo "FAIL: $path returned $code"; exit 1 ;;
+              esac
+            done
+
+            # nginx front-door (HTTP; HTTPS not required for smoke since LE
+            # certs may not have been issued yet on first deploy).
+            for h in litetube.trfnv.ru api.litetube.trfnv.ru admin.litetube.trfnv.ru; do
+              code=$(curl -sS -o /dev/null -w "%{http_code}" -m 10 -H "Host: $h" "http://127.0.0.1/health")
+              printf "  nginx(%s) /health HTTP %s\n" "$h" "$code"
+              [[ "$code" == "200" ]] || { echo "FAIL: $h returned $code"; exit 1; }
+            done
+
+            echo "== smoke tests PASSED =="
