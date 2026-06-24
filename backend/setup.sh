@@ -150,8 +150,13 @@ fi
 # 13. install litetube-alerter systemd unit (host-side log-watcher).
 #     Tails nginx + uvicorn access logs; emits admin-5xx alerts with
 #     cooldown-shared state in /srv/proxy-infra/db/litetube.db. Idempotent.
-mkdir -p /var/log/litetube
-chmod 0755 /var/log/litetube || true
+mkdir -p /var/log/litetube && chmod 0755 /var/log/litetube
+# systemd unit references EnvironmentFile=/srv/proxy-infra/.env; expose the
+# real .env (at backend/.env) at that path. Skip if a manual .env is already
+# in place at the systemd-expected location.
+if [[ ! -e /srv/proxy-infra/.env ]]; then
+    ln -s "$ROOT/.env" /srv/proxy-infra/.env
+fi
 if [[ -f "$ROOT/scripts/litetube-alerter.service" ]]; then
     install -m 0644 "$ROOT/scripts/litetube-alerter.service" \
         /etc/systemd/system/litetube-alerter.service
