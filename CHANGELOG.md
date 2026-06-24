@@ -28,7 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Notes
 - Этап 1 is invisible (`404`) when `GOOGLE_AUTH_ENABLED=0`. Flip via env + restart, no schema change.
 - Этап 2/3 (full shadow-table rebuild making `password_hash` nullable; UI Google-Sign-In button) follow in subsequent releases.
-- TODO before flipping the flag in production: set `client_max_body_size 32k` on the `litetube.trfnv.ru` nginx vhost (Starlette has no default body-size cap).
+- TODO before flipping the flag in production: set `client_max_body_size 8k` on the `litetube.trfnv.ru` nginx vhost (Starlette has no default body-size cap; legitimate Google ID tokens are <2 KB, the 4096-char `_GOOGLE_ID_TOKEN_MAX_LEN` in-app cap plus the JSON envelope fits well under 8k). See `OPERATIONS.md §3.1` for the full precondition.
 - Этап 2 (commit `adce0f0`): `users.password_hash` now nullable via shadow-table rebuild. See notes in `db.py:SCHEMA_V5` for early/late-window failure modes and recovery. Standalone `downgrade_to_v5_to_v4(path)` for emergency rollback.
 - Этап 3 (this release): Google Identity Services button wired into `activate.html` and `client.html` next to the email/password tabs. `{{GOOGLE_SIGNIN_BLOCK}}` placeholder is substituted by `main._render()` with a runtime check on `GOOGLE_AUTH_ENABLED` + `GOOGLE_CLIENT_ID`. The render cache key now includes both, so feature-flag flips without process restart still re-render correctly. CDN `accounts.google.com/gsi/client` unreachable in some regions — `onerror` fallback panel shows "Google Sign-In временно недоступен — используйте email и пароль" when the GIS library fails to load.
 
