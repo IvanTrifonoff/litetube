@@ -173,6 +173,7 @@ android {
             targetSdkVersion project.properties.compileSdkVersion
         }
         stlitetube {
+            matchingFallbacks = ['stbeta']
             applicationId "app.litetube.tv"
             minSdkVersion 21
             targetSdkVersion project.properties.compileSdkVersion

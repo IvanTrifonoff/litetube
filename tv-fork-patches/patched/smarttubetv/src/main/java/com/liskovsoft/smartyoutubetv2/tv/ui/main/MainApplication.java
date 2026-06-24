@@ -22,7 +22,6 @@ import com.liskovsoft.smartyoutubetv2.common.prefs.GeneralData;
 import com.liskovsoft.smartyoutubetv2.common.prefs.NetworkData;
 import com.liskovsoft.smartyoutubetv2.common.prefs.PlayerData;
 import com.liskovsoft.smartyoutubetv2.common.prefs.PlayerTweaksData;
-import com.liskovsoft.smartyoutubetv2.common.proxy.ru.RussiaProxySelector;
 import com.liskovsoft.smartyoutubetv2.tv.ui.adddevice.AddDeviceActivity;
 import com.liskovsoft.smartyoutubetv2.tv.ui.browse.BrowseActivity;
 import com.liskovsoft.smartyoutubetv2.tv.ui.channel.ChannelActivity;
@@ -82,16 +81,10 @@ public class MainApplication extends MultiDexApplication { // fix: Didn't find c
             }
         }
 
-        // Bootstrap the Russian-proxy auto-selector after Conscrypt is set up so
-        // SharedPreferences / System property writes happen under a known security
-        // provider. Synchronously applies a cached choice (zero-latency cold start)
-        // and schedules a periodic background re-test via WorkManager.
-        //
-        // Skip when the user hasn't completed first activation yet — there's no
-        // JWT, so /api/proxy/pool wouldn't authenticate, and applying a stale
-        // proxy on first run masks the activation screen.
+        // Россия-прокси-селектор (RussiaProxySelector) не используется в litetube-флейворе.
+        // Трафик идёт напрямую к api.litetube.trfnv.ru.
         if (com.liskovsoft.smartyoutubetv2.common.litetube.LitetubePrefs.instance(this).hasValidJwt()) {
-            RussiaProxySelector.bootstrap(this);
+            // proxy bootstrap skipped — litetube uses direct HTTPS
         }
 
         setupGlobalExceptionHandler();

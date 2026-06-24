@@ -67,9 +67,6 @@ PATCHED=(
   smarttubetv/src/main/res/values/strings.xml
 )
 NEW=(
-  common/src/main/java/com/liskovsoft/smartyoutubetv2/common/litetube/LitetubePrefs.kt
-  common/src/main/java/com/liskovsoft/smartyoutubetv2/common/litetube/LitetubeApi.kt
-  smarttubetv/src/main/java/com/liskovsoft/smartyoutubetv2/tv/ui/litetube/LitetubeActivationActivity.kt
   smarttubetv/src/main/res/layout/activity_litetube_activation.xml
 )
 
