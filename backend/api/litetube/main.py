@@ -18,7 +18,7 @@ from fastapi import Cookie, Depends, FastAPI, Form, HTTPException, Header, Reque
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from . import alerter, alert_loops, auth, billing, db, health_checker, proxy_3proxy
+from . import __version__, alerter, alert_loops, auth, billing, db, health_checker, proxy_3proxy
 
 logging.basicConfig(
     level=os.environ.get("LITETUBE_LOG_LEVEL", "INFO"),
@@ -58,9 +58,26 @@ async def lifespan(app: FastAPI):
         logger.info("litetube shut down cleanly")
 
 
-app = FastAPI(title="Litetube", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="Litetube", version=__version__, lifespan=lifespan)
 HERE = Path(__file__).parent
 app.mount("/static", StaticFiles(directory=str(HERE / "static")), name="static")
+
+
+# Cache rendered HTML per (filename, version). Only invalidated when the
+# service restarts (after a version bump), so callers pay file-IO + str.replace
+# exactly once per file per process.
+_RENDER_CACHE: dict[tuple[str, str], str] = {}
+
+
+def _render(name: str) -> str:
+    """Read a static HTML file and substitute `{{VERSION}}` so the footer
+    shows the current build. Cache key is filename + version, so the result
+    is rebuilt whenever __version__ changes (which means process restart).
+    """
+    key = (name, __version__)
+    if key not in _RENDER_CACHE:
+        _RENDER_CACHE[key] = (HERE / "static" / name).read_text(encoding="utf-8").replace("{{VERSION}}", __version__)
+    return _RENDER_CACHE[key] 
 
 
 # ----------------------------------------------------------------------
@@ -339,13 +356,13 @@ async def api_admin_stats(_=Depends(auth.operator_required)):
 # ----------------------------------------------------------------------
 @app.get("/", response_class=HTMLResponse)
 async def page_root():
-    return (HERE / "static" / "client.html").read_text(encoding="utf-8")
+    return _render("client.html")
 
 
 @app.get("/admin", response_class=HTMLResponse)
 @app.get("/admin/", response_class=HTMLResponse)
 async def page_admin():
-    return (HERE / "static" / "admin.html").read_text(encoding="utf-8")
+    return _render("admin.html")
 
 
 @app.get("/billing/success", response_class=HTMLResponse)
@@ -360,19 +377,20 @@ async def page_billing_fail():
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "service": "litetube-api"}
+    return {"status": "ok", "service": "litetube-api", "version": __version__}
 
 
 @app.get("/activate", response_class=HTMLResponse)
 async def page_activate():
     """Web activation page — phone pairs the TV code to the logged-in account."""
-    return (HERE / "static" / "activate.html").read_text(encoding="utf-8")
+    return _render("activate.html")
 
 
 @app.get("/app", response_class=HTMLResponse)
 async def page_app():
     """APK download page — lists available APK builds."""
     app_dir = HERE / "static" / "app"
+    _v = __version__
     apks = sorted(
         [f.name for f in app_dir.glob("*.apk") if f.is_file()],
         reverse=True
@@ -421,8 +439,10 @@ async def page_app():
   <a href="/">На главную</a> &middot; <a href="/activate">Активация</a>
 </div>
 </div>
+<div style="text-align:center;font-size:11px;color:#888;margin-top:24px">Litetube v{_v}</div>
 </body>
 </html>"""
+# /app page rendered above injects its own footer link; version appears there.
 #
 #  POST /api/devices/start              — TV app: get a 6-digit code + QR url
 #  GET  /api/devices/poll?code=XXXXXX   — TV app: long-poll until claimed
@@ -524,3 +544,186 @@ async def api_devices_claim_complete(request: Request, creds=Depends(auth.client
     if rc == 0:
         raise HTTPException(409, "race_lost")
     return {"ok": True}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
